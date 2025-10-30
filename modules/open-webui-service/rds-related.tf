@@ -108,7 +108,7 @@ resource "aws_rds_cluster" "open_webui" {
   cluster_identifier     = "${var.prefix}-aurora-cluster"
   engine                 = "aurora-postgresql"
   engine_mode            = "provisioned"
-  engine_version         = "15.4"
+  engine_version         = var.db_engine_version
   database_name          = "openwebui"
   master_username        = "openwebui_admin"
   master_password        = random_password.db_master_password.result

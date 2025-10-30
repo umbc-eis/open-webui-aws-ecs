@@ -68,6 +68,12 @@ variable "open_webui_domain_ssl_cert_arn" {
   type        = string
 }
 
+variable "db_engine_version" {
+  description = "PostgreSQL engine version for Aurora Serverless v2 (e.g., '15.12')"
+  type        = string
+  default     = "15.12"
+}
+
 variable "admin_name" {
   description = "Name for the initial admin user"
   type        = string

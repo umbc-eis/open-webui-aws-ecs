@@ -30,6 +30,7 @@ module "open_webui_service" {
   open_webui_domain              = var.open_webui_domain
   open_webui_domain_route53_zone = var.open_webui_domain_route53_zone
   open_webui_domain_ssl_cert_arn = var.open_webui_domain_ssl_cert_arn
+  db_engine_version              = var.db_engine_version
   admin_name                     = var.admin_name
   admin_email                    = var.admin_email
   enable_signup                  = var.enable_signup

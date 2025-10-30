@@ -17,6 +17,9 @@ open_webui_domain              = "openwebui.example.com"
 open_webui_domain_route53_zone = "ZXXXXXXXXXXXXX"
 open_webui_domain_ssl_cert_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
+# Database Configuration
+db_engine_version = "15.12"  # PostgreSQL version for Aurora Serverless v2
+
 # Admin user configuration
 admin_name        = "Admin User"
 admin_email       = "admin@example.com"
