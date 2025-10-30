@@ -46,4 +46,7 @@ module "open_webui_service" {
   enable_api_key                 = var.enable_api_key
   enable_direct_connections      = var.enable_direct_connections
   allowed_ingress_cidrs          = var.allowed_ingress_cidrs
+  enable_waf                     = var.enable_waf
+  waf_enable_logging             = var.waf_enable_logging
+  waf_log_retention_days         = var.waf_log_retention_days
 }

@@ -192,3 +192,22 @@ variable "allowed_ingress_cidrs" {
     error_message = "At least one CIDR block must be specified. Use ['0.0.0.0/0'] for public access."
   }
 }
+
+# Security - AWS WAF Configuration
+variable "enable_waf" {
+  description = "Enable AWS WAF v2 for the Application Load Balancer with managed rule groups"
+  type        = bool
+  default     = true
+}
+
+variable "waf_enable_logging" {
+  description = "Enable WAF logging to CloudWatch Logs"
+  type        = bool
+  default     = false
+}
+
+variable "waf_log_retention_days" {
+  description = "Number of days to retain WAF logs in CloudWatch"
+  type        = number
+  default     = 7
+}

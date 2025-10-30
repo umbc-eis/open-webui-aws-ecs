@@ -8,7 +8,7 @@ This Terraform configuration deploys a production-ready Open WebUI instance with
 - **Scalable compute**: ECS Fargate tasks with configurable CPU/memory
 - **Persistent storage**: RDS PostgreSQL for data + EFS for files
 - **High availability**: Multi-AZ deployment with Application Load Balancer
-- **Secure access**: HTTPS with ACM certificates + IP allowlist
+- **Secure access**: HTTPS with ACM certificates + IP allowlist + WAF protection
 - **SSO integration**: AWS Cognito OAuth support
 - **Automated setup**: Lambda function for admin user initialization
 
@@ -16,6 +16,9 @@ This Terraform configuration deploys a production-ready Open WebUI instance with
 
 ```
 Internet
+    │
+    ↓
+  [WAF] ← AWS Managed Rules (OWASP, IP reputation, etc.)
     │
     ↓
   [ALB] ← IP Allowlist (configurable)
@@ -34,6 +37,7 @@ Internet
 
 | Component | Purpose |
 |-----------|---------|
+| **AWS WAF** | Web application firewall with managed rule groups for OWASP Top 10, IP reputation, and exploit protection |
 | **ECS Fargate** | Runs Open WebUI containers (scalable, serverless) |
 | **Application Load Balancer** | Public-facing HTTPS endpoint with SSL/TLS |
 | **RDS PostgreSQL** | Persistent database for conversations, settings, users |
@@ -47,6 +51,7 @@ Internet
 ## Features
 
 ### Security
+- ✅ **AWS WAF**: Protection against OWASP Top 10, SQL injection, XSS, and known malicious IPs
 - ✅ **IP Allowlist**: Restrict access to specific IPs/ranges (configurable)
 - ✅ **HTTPS**: SSL/TLS encryption with ACM certificates
 - ✅ **AWS Cognito SSO**: Single sign-on with OAuth 2.0
@@ -234,6 +239,59 @@ open_webui_task_mem   = 4096  # 4 GB
 open_webui_task_count = 3
 ```
 
+### AWS WAF Configuration
+
+**Default**: WAF is enabled with AWS Managed Rule Groups
+
+The WAF configuration includes:
+1. **Amazon IP Reputation List** - Blocks known malicious IPs
+2. **Common Rule Set** - OWASP Top 10 protection
+3. **Known Bad Inputs** - Exploit pattern blocking
+4. **Linux Rule Set** - Linux-specific protections
+5. **PHP Rule Set** - PHP vulnerability protection
+
+#### Enable/Disable WAF
+
+In [terraform.tfvars](terraform.tfvars):
+
+```hcl
+# Enable WAF (recommended for production)
+enable_waf = true
+
+# Optional: Enable WAF logging to CloudWatch
+waf_enable_logging     = true
+waf_log_retention_days = 7  # Days to keep logs
+```
+
+#### Importing Existing WAF
+
+If you manually created a WAF, see [WAF_IMPORT.md](WAF_IMPORT.md) for step-by-step import instructions.
+
+#### Monitoring WAF Activity
+
+**View blocked requests in AWS Console:**
+- Navigate to **WAF & Shield** → **Web ACLs** → **openwebui-waf**
+- Click **Overview** tab to see request metrics
+- Click **Sampled requests** tab to see blocked traffic
+
+**CloudWatch Metrics:**
+```bash
+# View WAF metrics
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/WAFV2 \
+  --metric-name BlockedRequests \
+  --dimensions Name=Rule,Value=ALL Name=WebACL,Value=openwebui-waf \
+  --statistics Sum \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
+  --period 300
+```
+
+**WAF Logs (if enabled):**
+```bash
+aws logs tail /aws/wafv2/openwebui --follow
+```
+
 ## Remote State Setup (Recommended)
 
 For team collaboration and state safety, configure remote state storage:
@@ -380,10 +438,13 @@ Approximate monthly costs (us-east-1, low traffic):
 | RDS PostgreSQL | db.t3.micro | ~$15 |
 | EFS | 1GB storage | ~$0.30 |
 | ALB | 1 ALB | ~$16 |
+| AWS WAF | Web ACL + 5 rule groups | ~$11 |
 | Data Transfer | 10GB | ~$1 |
-| **Total** | | **~$62/month** |
+| **Total** | | **~$73/month** |
 
-Scale up (3 tasks, db.t3.small): **~$130/month**
+Scale up (3 tasks, db.t3.small): **~$141/month**
+
+**Note**: WAF costs ~$11/month base ($5 for Web ACL + ~$6 for managed rule groups). Additional charges apply per million requests ($0.60/million).
 
 ## Files Structure
 
@@ -394,6 +455,7 @@ Scale up (3 tasks, db.t3.small): **~$130/month**
 ├── outputs.tf                 # Output values
 ├── terraform.tfvars.example   # Configuration template
 ├── backend.tf.example         # Remote state template
+├── WAF_IMPORT.md              # Guide for importing existing WAF
 ├── bootstrap/                 # Remote state infrastructure
 │   ├── main.tf
 │   ├── variables.tf
@@ -405,6 +467,7 @@ Scale up (3 tasks, db.t3.small): **~$130/month**
         ├── efs-related.tf     # EFS file system and mount targets
         ├── rds-related.tf     # RDS PostgreSQL database
         ├── pub-alb-related.tf # ALB, security groups, Route53
+        ├── waf-related.tf     # WAF Web ACL and managed rules
         ├── lambda-admin-init.tf  # Admin user initialization
         ├── locals.tf          # Local variables
         ├── variables.tf       # Module inputs

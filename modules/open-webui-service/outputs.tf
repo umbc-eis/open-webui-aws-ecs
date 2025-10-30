@@ -63,3 +63,18 @@ output "admin_init_lambda_log_group" {
   description = "CloudWatch log group for admin init Lambda"
   value       = aws_cloudwatch_log_group.admin_init_lambda.name
 }
+
+output "waf_web_acl_id" {
+  description = "ID of the WAF Web ACL"
+  value       = var.enable_waf ? aws_wafv2_web_acl.openwebui[0].id : null
+}
+
+output "waf_web_acl_arn" {
+  description = "ARN of the WAF Web ACL"
+  value       = var.enable_waf ? aws_wafv2_web_acl.openwebui[0].arn : null
+}
+
+output "waf_web_acl_capacity" {
+  description = "Web ACL capacity units (WCU) used by the rules"
+  value       = var.enable_waf ? aws_wafv2_web_acl.openwebui[0].capacity : null
+}
