@@ -1,0 +1,12 @@
+# Configuration for Terraform state infrastructure bootstrap
+#
+# Copy this file to terraform.tfvars and customize the values
+
+region = "us-east-1"
+
+# IMPORTANT: S3 bucket names must be globally unique across ALL AWS accounts
+# Choose a unique name like: your-org-terraform-state-YYYYMMDD
+state_bucket_name = "your-unique-terraform-state-bucket-name"
+
+# DynamoDB table name (can be the default or customize)
+dynamodb_table_name = "terraform-state-lock"

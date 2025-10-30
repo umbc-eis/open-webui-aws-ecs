@@ -14,6 +14,10 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 
+# Backend configuration (commit after setup is complete)
+# Uncomment the line below if you want to exclude it initially:
+# backend.tf
+
 # Ignore override files as they are usually used to override resources locally
 override.tf
 override.tf.json
