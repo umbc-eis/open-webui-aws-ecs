@@ -1,0 +1,50 @@
+region                       = "us-east-1"
+azs                          = ["us-east-1a", "us-east-1b"]
+
+vpc_id                       = "vpc-xxxxxxxxxxxxxxxxx"
+vpc_cidr_block               = "10.0.0.0/16"
+
+ecs_subnet_ids  = ["subnet-xxxxxxxxxxxxxxxxx", "subnet-xxxxxxxxxxxxxxxxx"]
+alb_subnet_ids  = ["subnet-xxxxxxxxxxxxxxxxx", "subnet-xxxxxxxxxxxxxxxxx"]
+
+open_webui_task_cpu = 1024
+open_webui_task_mem          = 2048
+open_webui_task_count        = 3
+open_webui_port              = 8080
+open_webui_image_url         = "ghcr.io/open-webui/open-webui:latest"
+
+open_webui_domain              = "openwebui.example.com"
+open_webui_domain_route53_zone = "ZXXXXXXXXXXXXX"
+open_webui_domain_ssl_cert_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Admin user configuration
+admin_name        = "Admin User"
+admin_email       = "admin@example.com"
+enable_signup     = true
+default_user_role = "user"  # Users from OAuth get "user" role
+
+# AWS Cognito SSO configuration
+# To enable SSO: fill in the values below and set enable_oauth_signup = true
+enable_oauth_signup            = false
+oauth_provider_name            = "SSO"
+cognito_user_pool_id           = ""  # e.g., "us-east-1_ABC123DEF"
+cognito_app_client_id          = ""  # Get from Cognito App Client settings
+cognito_app_client_secret      = ""  # Get from Cognito App Client settings
+oauth_merge_accounts_by_email  = true
+oauth_allowed_domains          = "*"  # Or restrict: "example.com"
+disable_local_auth             = false  # disable username/password login
+force_oauth_login              = false  # Force all users to use OAuth/SSO
+
+# API and Connection Configuration
+enable_api_key            = false  # Enable API keys - allows programmatic access and administrative APIs
+enable_direct_connections = true   # Allow users to add their own OpenAI/LLM connections in the UI
+
+# Security - IP Allowlist for Public Access
+# IMPORTANT: Restrict access to specific IP addresses or ranges for security
+# Examples:
+#   Single IP:        ["203.0.113.10/32"]
+#   Multiple IPs:     ["203.0.113.10/32", "198.51.100.0/24"]
+#   Your office only: ["YOUR.OFFICE.IP/32"]
+#   Public access:    ["0.0.0.0/0"]
+# Default (if not specified): ["127.0.0.1/32"] - blocks all external access
+allowed_ingress_cidrs = ["YOUR.IP.ADDRESS/32"]  # Replace with your IP address or CIDR block
