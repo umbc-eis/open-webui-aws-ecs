@@ -187,7 +187,7 @@ resource "aws_wafv2_web_acl_association" "openwebui_alb" {
 resource "aws_cloudwatch_log_group" "waf_logs" {
   count = var.enable_waf && var.waf_enable_logging ? 1 : 0
 
-  name              = "/aws/wafv2/${var.prefix}"
+  name              = "aws-waf-logs-${var.prefix}"
   retention_in_days = var.waf_log_retention_days
 
   tags = {
