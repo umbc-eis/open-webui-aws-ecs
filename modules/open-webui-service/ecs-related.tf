@@ -46,10 +46,44 @@ data "aws_iam_policy_document" "open_webui_ecs_iamr_assume" {
   }
 }
 
+# Custom IAM policy for Secrets Manager access (scoped to specific secrets)
+resource "aws_iam_policy" "ecs_secrets_read" {
+  name        = "${var.prefix}-ecs-secrets-read"
+  description = "Allow ECS tasks to read specific secrets"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.db_master_password.arn,
+          aws_secretsmanager_secret.admin_credentials.arn
+        ]
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "${var.prefix}-ecs-secrets-read"
+    ManagedBy = "terraform"
+  }
+}
+
 resource "aws_iam_role_policy_attachment" "open_webui_ecs_iam_policy" {
   for_each   = toset(local.ecs_iamr_policies)
   role       = aws_iam_role.open_webui_iamr.name
   policy_arn = each.value
+}
+
+# Attach custom secrets policy
+resource "aws_iam_role_policy_attachment" "ecs_secrets_policy" {
+  role       = aws_iam_role.open_webui_iamr.name
+  policy_arn = aws_iam_policy.ecs_secrets_read.arn
 }
 
 # Fargate task def
@@ -196,18 +230,40 @@ resource "aws_security_group" "open_webui_sg" {
   vpc_id      = var.vpc_id
 }
 
-resource "aws_vpc_security_group_egress_rule" "open_webui_egress_1" {
+# Allow HTTPS for AWS services, external LLM APIs, and secure web access
+resource "aws_vpc_security_group_egress_rule" "open_webui_egress_https" {
   security_group_id = aws_security_group.open_webui_sg.id
-  description       = "Allow all tcp outbound"
-  from_port         = 0
-  to_port           = 65535
+  description       = "Allow HTTPS for AWS services, external APIs, and secure web access"
+  from_port         = 443
+  to_port           = 443
   ip_protocol       = "tcp"
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# Allow HTTP for web scraping and searches (some sites still use HTTP)
+resource "aws_vpc_security_group_egress_rule" "open_webui_egress_http" {
+  security_group_id = aws_security_group.open_webui_sg.id
+  description       = "Allow HTTP for web scraping, searches, and legacy APIs"
+  from_port         = 80
+  to_port           = 80
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# Allow PostgreSQL access to RDS within VPC
+resource "aws_vpc_security_group_egress_rule" "open_webui_egress_postgres" {
+  security_group_id = aws_security_group.open_webui_sg.id
+  description       = "Allow PostgreSQL access to RDS within VPC"
+  from_port         = 5432
+  to_port           = 5432
+  ip_protocol       = "tcp"
+  cidr_ipv4         = var.vpc_cidr_block
+}
+
+# Allow NFS access to EFS within VPC
 resource "aws_vpc_security_group_egress_rule" "open_webui_egress_2" {
   security_group_id = aws_security_group.open_webui_sg.id
-  description       = "Traffic to NFS port to EFS within VPC"
+  description       = "Allow NFS traffic to EFS within VPC"
   from_port         = 2049
   to_port           = 2049
   ip_protocol       = "tcp"

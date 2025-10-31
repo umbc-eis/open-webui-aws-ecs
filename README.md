@@ -105,7 +105,42 @@ git clone <your-repo-url>
 cd open-webui-aws-fargate
 ```
 
-### 2. Create Configuration
+### 2. Set Up Remote State (First Time Only)
+
+**If this is a new deployment**, you need to create the S3 bucket for Terraform state:
+
+```bash
+cd bootstrap
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with a globally unique bucket name
+terraform init
+terraform apply
+cd ..
+```
+
+See [bootstrap/README.md](bootstrap/README.md) for detailed instructions.
+
+### 3. Configure Backend
+
+Create your backend configuration file (not tracked in git):
+
+```bash
+cp backend.hcl.example backend.hcl
+```
+
+Edit `backend.hcl` with your S3 bucket name from step 2:
+
+```hcl
+bucket         = "your-org-environment-openwebui-state-YYYYMMDD"
+key            = "open-webui-fargate/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+```
+
+**For Team Members**: If joining an existing project, get the `backend.hcl` values from your team lead or AWS Console.
+
+### 4. Create Configuration
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
@@ -140,10 +175,10 @@ admin_name  = "Admin User"
 admin_email = "admin@example.com"
 ```
 
-### 3. Deploy
+### 5. Deploy
 
 ```bash
-terraform init
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```

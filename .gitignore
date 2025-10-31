@@ -14,9 +14,11 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 
-# Backend configuration (commit after setup is complete)
-# Uncomment the line below if you want to exclude it initially:
-# backend.tf
+# Backend configuration files
+# backend.tf can be committed with placeholder values
+# The actual backend config should be in backend.hcl (not tracked)
+backend.hcl
+*.backend.hcl
 
 # Ignore override files as they are usually used to override resources locally
 override.tf

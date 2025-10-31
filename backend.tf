@@ -1,18 +1,28 @@
 # Backend configuration for remote state storage
 #
-# INSTRUCTIONS:
+# INSTRUCTIONS FOR SETUP:
 # 1. First, create the S3 bucket and DynamoDB table (see bootstrap/ directory)
-# 2. Copy this file to backend.tf: cp backend.tf.example backend.tf
-# 3. Update the bucket name and dynamodb_table name below
-# 4. Run: terraform init -migrate-state
-# 5. Commit backend.tf to version control
+# 2. Create a backend.hcl file (not tracked in git) with your specific values:
+#
+#    Example backend.hcl:
+#    bucket         = "your-org-prod-openwebui-state-YYYYMMDD"
+#    key            = "open-webui-fargate/terraform.tfstate"
+#    region         = "us-east-1"
+#    dynamodb_table = "terraform-state-lock"
+#    encrypt        = true
+#
+# 3. Initialize Terraform with the backend config:
+#    terraform init -backend-config=backend.hcl
+#
+# 4. To migrate existing state:
+#    terraform init -migrate-state -backend-config=backend.hcl
+#
+# NOTE: Each team member/environment should have their own backend.hcl file
+# The backend.hcl file should NOT be committed to version control
 
 terraform {
-	backend "s3" {
-  		bucket         = "umbc-prod-openwebui-genai-state-20251031"
-  		key            = "open-webui-fargate/terraform.tfstate"
-  		region         = "us-east-1"
-  		dynamodb_table = "terraform-state-lock"
-  		encrypt        = true
-	}
+  backend "s3" {
+    # Backend configuration will be provided via backend.hcl file
+    # Run: terraform init -backend-config=backend.hcl
+  }
 }

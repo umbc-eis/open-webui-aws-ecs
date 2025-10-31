@@ -78,18 +78,31 @@ Go back to the project root:
 cd ..
 ```
 
-Copy and edit the backend configuration:
+Create a `backend.hcl` file with your actual backend configuration:
 ```bash
-cp backend.tf.example backend.tf
+cp backend.hcl.example backend.hcl
 ```
 
-Edit `backend.tf` and update with your actual bucket and table names from Step 3.
+Edit `backend.hcl` with the values from Step 3:
+```hcl
+bucket         = "your-actual-bucket-name-from-step-3"
+key            = "open-webui-fargate/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
+```
+
+**Important Security Notes:**
+- ✅ `backend.tf` is committed to git (contains the structure)
+- ✅ `backend.hcl.example` is committed to git (contains placeholders)
+- ❌ `backend.hcl` is NOT committed to git (contains your actual bucket name)
+- This approach allows sharing the code while keeping infrastructure details private
 
 ### Step 5: Migrate State
 
-Initialize Terraform with the new backend:
+Initialize Terraform with the backend configuration:
 ```bash
-terraform init -migrate-state
+terraform init -backend-config=backend.hcl -migrate-state
 ```
 
 Terraform will ask: `Do you want to copy existing state to the new backend?`
@@ -107,10 +120,12 @@ Your local `terraform.tfstate` file should now be empty or very small (just a ba
 ### Step 7: Commit Backend Configuration
 
 ```bash
-git add backend.tf bootstrap/
+git add backend.tf backend.hcl.example bootstrap/
 git commit -m "Configure remote state with S3 backend"
 git push
 ```
+
+**Note**: Only `backend.tf` and `backend.hcl.example` are committed. Each team member will create their own `backend.hcl` file locally.
 
 ## State Management
 

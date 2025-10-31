@@ -56,7 +56,7 @@ locals {
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
     "arn:aws:iam::aws:policy/AmazonElasticFileSystemClientReadWriteAccess",
     "arn:aws:iam::aws:policy/AmazonElasticFileSystemReadOnlyAccess",
-    "arn:aws:iam::aws:policy/SecretsManagerReadWrite",
+    # Note: SecretsManagerReadWrite replaced with custom scoped policy (see ecs-related.tf)
   ]
 
   alb_configs = {

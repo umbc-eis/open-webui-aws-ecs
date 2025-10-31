@@ -166,7 +166,10 @@ resource "aws_iam_role_policy" "admin_init_lambda_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:${var.region}:*:*"
+        Resource = [
+          "arn:aws:logs:${var.region}:*:log-group:/aws/lambda/${var.prefix}-admin-init",
+          "arn:aws:logs:${var.region}:*:log-group:/aws/lambda/${var.prefix}-admin-init:*"
+        ]
       },
       {
         Effect = "Allow"
@@ -176,6 +179,9 @@ resource "aws_iam_role_policy" "admin_init_lambda_policy" {
         Resource = aws_secretsmanager_secret.admin_credentials.arn
       },
       {
+        # Note: EC2 network interface permissions require Resource = "*" for VPC Lambda functions
+        # This is an AWS limitation - these actions don't support resource-level permissions
+        # See: https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html
         Effect = "Allow"
         Action = [
           "ec2:CreateNetworkInterface",

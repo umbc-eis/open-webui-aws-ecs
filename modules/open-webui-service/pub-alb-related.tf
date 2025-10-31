@@ -64,13 +64,14 @@ resource "aws_security_group" "open_webui_alb_sg" {
   vpc_id      = var.vpc_id
 }
 
-resource "aws_vpc_security_group_egress_rule" "open_webui_alb_egress_1" {
-  security_group_id = aws_security_group.open_webui_alb_sg.id
-  description       = "Allow all tcp outbound"
-  from_port         = 0
-  to_port           = 65535
-  ip_protocol       = "tcp"
-  cidr_ipv4         = "0.0.0.0/0"
+# ALB egress to ECS tasks on Open WebUI port
+resource "aws_vpc_security_group_egress_rule" "open_webui_alb_egress_to_ecs" {
+  security_group_id            = aws_security_group.open_webui_alb_sg.id
+  description                  = "Allow traffic to ECS tasks on Open WebUI port"
+  from_port                    = var.open_webui_port
+  to_port                      = var.open_webui_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.open_webui_sg.id
 }
 
 

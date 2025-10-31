@@ -1,0 +1,15 @@
+# Backend Configuration Example
+# 
+# Copy this file to backend.hcl and update with your actual values
+# DO NOT commit backend.hcl to version control
+#
+# Usage:
+#   cp backend.hcl.example backend.hcl
+#   # Edit backend.hcl with your values
+#   terraform init -backend-config=backend.hcl
+
+bucket         = "your-org-environment-openwebui-state-YYYYMMDD"
+key            = "open-webui-fargate/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
