@@ -64,11 +64,11 @@ resource "aws_secretsmanager_secret" "admin_credentials" {
 resource "aws_secretsmanager_secret_version" "admin_credentials" {
   secret_id = aws_secretsmanager_secret.admin_credentials.id
   secret_string = jsonencode({
-    name     = var.admin_name
-    email    = var.admin_email
-    password = random_password.admin_password.result
+    name             = var.admin_name
+    email            = var.admin_email
+    password         = random_password.admin_password.result
     webui_secret_key = random_password.webui_secret_key.result
-    instructions = "Use this email and password to create the first admin account. The first user to sign up will automatically be an admin."
+    instructions     = "Use this email and password to create the first admin account. The first user to sign up will automatically be an admin."
   })
 }
 
@@ -105,13 +105,13 @@ resource "aws_vpc_security_group_ingress_rule" "aurora_from_ecs" {
 
 # Aurora Serverless v2 Cluster
 resource "aws_rds_cluster" "open_webui" {
-  cluster_identifier     = "${var.prefix}-aurora-cluster"
-  engine                 = "aurora-postgresql"
-  engine_mode            = "provisioned"
-  engine_version         = var.db_engine_version
-  database_name          = "openwebui"
-  master_username        = "openwebui_admin"
-  master_password        = random_password.db_master_password.result
+  cluster_identifier = "${var.prefix}-aurora-cluster"
+  engine             = "aurora-postgresql"
+  engine_mode        = "provisioned"
+  engine_version     = var.db_engine_version
+  database_name      = "openwebui"
+  master_username    = "openwebui_admin"
+  master_password    = random_password.db_master_password.result
 
   # Networking
   db_subnet_group_name   = aws_db_subnet_group.open_webui.name
@@ -119,13 +119,13 @@ resource "aws_rds_cluster" "open_webui" {
 
   # Serverless v2 scaling
   serverlessv2_scaling_configuration {
-    min_capacity = 0.5  # Minimum ACUs (Aurora Capacity Units)
-    max_capacity = 2.0  # Maximum ACUs - adjust based on your needs
+    min_capacity = 0.5 # Minimum ACUs (Aurora Capacity Units)
+    max_capacity = 4.0 # Maximum ACUs - adjust based on your needs
   }
 
   # Backup configuration - nightly snapshots with 30-day retention
   backup_retention_period      = 30
-  preferred_backup_window      = "05:00-06:00"  # 5-6 AM UTC
+  preferred_backup_window      = "05:00-06:00" # 5-6 AM UTC
   preferred_maintenance_window = "sun:06:00-sun:07:00"
 
   # Snapshot configuration
@@ -147,7 +147,8 @@ resource "aws_rds_cluster" "open_webui" {
 
   lifecycle {
     ignore_changes = [
-      final_snapshot_identifier,  # Prevent changes on every apply
+      final_snapshot_identifier, # Prevent changes on every apply
+      engine_version,            # Allow AWS auto-minor-upgrades without TF drift; major bumps handled out-of-band
     ]
   }
 }
@@ -169,6 +170,12 @@ resource "aws_rds_cluster_instance" "open_webui" {
 
   tags = {
     "Name" : "${var.prefix}-aurora-instance-1"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      engine_version, # Track the cluster's version (auto-upgraded by AWS)
+    ]
   }
 }
 

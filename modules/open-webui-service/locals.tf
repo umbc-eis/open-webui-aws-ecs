@@ -29,7 +29,8 @@ locals {
     { name = "WEBUI_URL", value = local.webui_url },
     { name = "ENABLE_API_KEY", value = tostring(var.enable_api_key) },
     { name = "ENABLE_DIRECT_CONNECTIONS", value = tostring(var.enable_direct_connections) },
-    { name = "ENABLE_OLLAMA_API", value = "False" }  # Disabled - not using Ollama
+    { name = "ENABLE_OLLAMA_API", value = "False" },  # Disabled - not using Ollama
+    { name = "VECTOR_DB", value = "pgvector" }        # Use PostgreSQL for vector storage instead of ChromaDB
   ]
 
   # OAuth environment variables (only if OAuth is enabled)

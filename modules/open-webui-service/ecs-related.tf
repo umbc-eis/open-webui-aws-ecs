@@ -15,7 +15,7 @@ resource "aws_ecs_cluster" "open_webui" {
 
   setting {
     name  = "containerInsights"
-    value = "disabled"
+    value = "enhanced"
   }
 }
 

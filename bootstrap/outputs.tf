@@ -22,14 +22,11 @@ output "backend_config" {
   description = "Backend configuration to add to your main Terraform project"
   value       = <<-EOT
 
-    Add this to your main.tf terraform block:
+    Add this to your backend.hcl file:
 
-    backend "s3" {
-      bucket         = "${aws_s3_bucket.terraform_state.id}"
-      key            = "open-webui-fargate/terraform.tfstate"
-      region         = "${var.region}"
-      dynamodb_table = "${aws_dynamodb_table.terraform_locks.name}"
-      encrypt        = true
-    }
+    bucket  = "${aws_s3_bucket.terraform_state.id}"
+    key     = "open-webui-fargate/terraform.tfstate"
+    region  = "${var.region}"
+    encrypt = true
   EOT
 }
