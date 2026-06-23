@@ -78,3 +78,8 @@ output "waf_web_acl_capacity" {
   description = "Web ACL capacity units (WCU) used by the rules"
   value       = var.enable_waf ? aws_wafv2_web_acl.openwebui[0].capacity : null
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for the Open WebUI image with extra Python libs"
+  value       = aws_ecr_repository.openwebui_umbc.repository_url
+}
