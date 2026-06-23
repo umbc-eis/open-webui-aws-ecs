@@ -1,15 +1,18 @@
 # Backend Configuration Example
-# 
-# Copy this file to backend.hcl and update with your actual values
-# DO NOT commit backend.hcl to version control
+#
+# Copy this file to backend.hcl and fill in your actual values.
+# backend.hcl is gitignored — it contains the bucket name unique to your
+# environment.
 #
 # Usage:
 #   cp backend.hcl.example backend.hcl
 #   # Edit backend.hcl with your values
 #   terraform init -backend-config=backend.hcl
+#
+# The main backend (backend.tf) uses S3-native locking (use_lockfile = true),
+# so there is no dynamodb_table key here.
 
-bucket         = "your-org-environment-openwebui-state-YYYYMMDD"
-key            = "open-webui-fargate/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "terraform-state-lock"
-encrypt        = true
+bucket  = "your-org-environment-openwebui-state-YYYYMMDD"
+key     = "open-webui-fargate/terraform.tfstate"
+region  = "us-east-1"
+encrypt = true
