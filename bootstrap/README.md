@@ -1,46 +1,40 @@
 # Terraform State Infrastructure Bootstrap
 
-This directory contains Terraform configuration to create the infrastructure needed for remote state storage:
-- **S3 Bucket**: Stores your Terraform state files with encryption and versioning
-- **DynamoDB Table**: Provides state locking to prevent concurrent modifications
+One-time setup that creates the **S3 bucket** used for remote Terraform state for the main project.
 
-## Why Remote State?
+The main backend (`../backend.tf`) uses **S3-native locking** (`use_lockfile = true`), so no DynamoDB table is required. This bootstrap module currently still creates a `terraform-state-lock` DynamoDB table for historical reasons — it is **unused** and slated for removal in a follow-up. You can ignore it.
 
-Using remote state storage provides:
-- **Collaboration**: Team members can share state
-- **Safety**: State locking prevents conflicts
-- **Versioning**: S3 versioning allows state recovery
-- **Security**: Encryption at rest for sensitive data
+## Why remote state
+
+- **Collaboration** — multiple operators share one source of truth.
+- **Locking** — S3-native conditional writes prevent concurrent applies from corrupting state.
+- **Versioning** — every write keeps a previous version for 90 days (S3 lifecycle); recovery is a `terraform state pull` away.
+- **Encryption** — AES-256 at rest, public access blocked.
 
 ## Prerequisites
 
-- AWS CLI configured with appropriate credentials
-- Permissions to create S3 buckets and DynamoDB tables
-- Terraform installed (>= 1.0)
+- AWS CLI configured with permissions to create S3 buckets (and DynamoDB tables, until that resource is removed).
+- Terraform ≥ 1.0.
 
-## Setup Instructions
+## Setup
 
-### Step 1: Configure Variables
+### 1. Configure
 
-Create your configuration file:
 ```bash
 cd bootstrap
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` and set a **globally unique** bucket name:
+Edit `terraform.tfvars`:
+
 ```hcl
-region = "us-east-1"  # Match your project region
-state_bucket_name = "your-company-openwebui-tfstate-20241030"  # MUST BE UNIQUE
-dynamodb_table_name = "terraform-state-lock"
+region            = "us-east-1"
+state_bucket_name = "your-org-openwebui-tfstate-20260623"  # MUST be globally unique
 ```
 
-**Important**: S3 bucket names must be globally unique across ALL AWS accounts. Consider including:
-- Your organization name
-- Project identifier
-- Date (YYYYMMDD)
+S3 bucket names are globally unique across all AWS accounts. Include org name + project + date.
 
-### Step 2: Initialize and Apply
+### 2. Apply
 
 ```bash
 terraform init
@@ -48,151 +42,87 @@ terraform plan
 terraform apply
 ```
 
-Review the plan carefully, then type `yes` to create the resources.
+### 3. Note the output
 
-### Step 3: Note the Outputs
+After apply, Terraform prints a `backend_config` output with the values to paste into `../backend.hcl`:
 
-After successful apply, Terraform will display:
 ```
-Outputs:
-
 backend_config = <<-EOT
-  Add this to your main.tf terraform block:
 
-  backend "s3" {
-    bucket         = "your-actual-bucket-name"
-    key            = "open-webui-fargate/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
-  }
+    Add this to your backend.hcl file:
+
+    bucket  = "your-actual-bucket-name"
+    key     = "open-webui-fargate/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
 EOT
 ```
 
-**Save these values** - you'll need them for the next step.
+### 4. Configure the main project's backend
 
-### Step 4: Configure Backend in Main Project
-
-Go back to the project root:
 ```bash
 cd ..
-```
-
-Create a `backend.hcl` file with your actual backend configuration:
-```bash
 cp backend.hcl.example backend.hcl
+# Edit backend.hcl with the values from the previous step
 ```
 
-Edit `backend.hcl` with the values from Step 3:
-```hcl
-bucket         = "your-actual-bucket-name-from-step-3"
-key            = "open-webui-fargate/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "terraform-state-lock"
-encrypt        = true
+`backend.tf` is already committed and points at S3 with `use_lockfile = true`; only `backend.hcl` needs to be created (and is gitignored).
+
+### 5. Initialize the main project
+
+```bash
+terraform init -backend-config=backend.hcl
 ```
 
-**Important Security Notes:**
-- ✅ `backend.tf` is committed to git (contains the structure)
-- ✅ `backend.hcl.example` is committed to git (contains placeholders)
-- ❌ `backend.hcl` is NOT committed to git (contains your actual bucket name)
-- This approach allows sharing the code while keeping infrastructure details private
+If you have existing local state to migrate up:
 
-### Step 5: Migrate State
-
-Initialize Terraform with the backend configuration:
 ```bash
 terraform init -backend-config=backend.hcl -migrate-state
 ```
 
-Terraform will ask: `Do you want to copy existing state to the new backend?`
-Type `yes` to migrate your local state to S3.
+Terraform asks `Do you want to copy existing state to the new backend?` — answer `yes`.
 
-### Step 6: Verify Migration
-
-Check that state is now remote:
-```bash
-terraform state list
-```
-
-Your local `terraform.tfstate` file should now be empty or very small (just a backend pointer).
-
-### Step 7: Commit Backend Configuration
+## State management
 
 ```bash
-git add backend.tf backend.hcl.example bootstrap/
-git commit -m "Configure remote state with S3 backend"
-git push
+terraform state list                 # list resources
+terraform state show <addr>          # show one
+terraform state pull > state.json    # dump
+terraform force-unlock <lock-id>     # break a stuck lock (use carefully)
 ```
 
-**Note**: Only `backend.tf` and `backend.hcl.example` are committed. Each team member will create their own `backend.hcl` file locally.
+With S3-native locking, locks live as `.tflock` objects alongside the state object. If you need to break one manually, delete the `.tflock` object in S3 only after confirming no apply is actually running.
 
-## State Management
+## What this module creates
 
-### Viewing State
-```bash
-terraform state list                    # List all resources
-terraform state show <resource>         # Show specific resource details
-```
-
-### Manual State Operations (Advanced)
-```bash
-# Pull current state
-terraform state pull > state.json
-
-# Push state (use with caution!)
-terraform state push state.json
-```
-
-### State Locking
-
-The DynamoDB table automatically locks state during operations. If a lock gets stuck:
-```bash
-terraform force-unlock <lock-id>
-```
-
-## Security Notes
-
-1. **S3 Bucket**: Configured with:
-   - Encryption at rest (AES256)
-   - Versioning enabled (90-day retention)
-   - Public access blocked
-   - Lifecycle policies for cleanup
-
-2. **DynamoDB Table**: Uses on-demand billing (cost-effective for small teams)
-
-3. **Access Control**: Use IAM policies to restrict access to the bucket and table
+- `aws_s3_bucket.terraform_state` — versioning enabled, AES-256 encryption, public access blocked, 90-day non-current version expiration, 7-day multipart-upload abort.
+- `aws_dynamodb_table.terraform_locks` — **unused**, kept for now to avoid an unexpected destroy during the locking-mode transition. Will be removed.
 
 ## Costs
 
-This setup incurs minimal AWS costs:
-- **S3**: ~$0.023/GB/month (state files are typically <1MB)
-- **S3 Versioning**: Additional cost for old versions
-- **DynamoDB**: Pay-per-request (~$0.25 per million requests)
-- **Typical monthly cost**: <$1
+- **S3**: ~$0.023/GB-mo. State files are typically <1 MB; total <$1/mo.
+- **DynamoDB** (unused): pay-per-request, idle ≈ $0.
+- **Total**: well under $1/mo.
 
 ## Troubleshooting
 
-### Error: Bucket name already exists
-S3 bucket names are globally unique. Choose a different name in `terraform.tfvars`.
+**`BucketAlreadyExists`** — bucket names are global. Pick something more specific.
 
-### Error: Failed to acquire state lock
-Someone else is running Terraform, or a previous operation crashed:
-1. Wait for the other operation to complete, OR
-2. Use `terraform force-unlock <lock-id>` if you're certain no one else is working
+**`Failed to acquire state lock`** — another apply is running, or a previous one crashed without releasing the lock. With S3-native locking the lock object lives at `<key>.tflock`; check S3 for that object's age before force-unlocking.
 
-### Migration failed
-If state migration fails:
-1. Keep your local `terraform.tfstate` file as backup
-2. Manually copy it to S3: `aws s3 cp terraform.tfstate s3://your-bucket/open-webui-fargate/terraform.tfstate`
-3. Run `terraform init -reconfigure`
+**Migration failed** — local `terraform.tfstate` is still on disk. You can manually upload it:
+```bash
+aws s3 cp terraform.tfstate s3://your-bucket/open-webui-fargate/terraform.tfstate
+terraform init -reconfigure -backend-config=backend.hcl
+```
 
-## Cleanup
+## Tearing it down
 
-To remove the state infrastructure (not recommended for production):
+Don't, unless you've migrated state elsewhere first. If you really mean it:
+
 ```bash
 cd bootstrap
 terraform destroy
 ```
 
-**Warning**: Only do this if you've migrated all state elsewhere or no longer need it!
+This will fail if the bucket contains objects (versioning keeps them around). Empty it manually first or add `force_destroy = true` to the bucket resource temporarily.
