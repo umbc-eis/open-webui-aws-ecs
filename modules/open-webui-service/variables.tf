@@ -189,17 +189,6 @@ variable "enable_direct_connections" {
   default     = true
 }
 
-# Security - IP allowlist for ALB public access
-variable "allowed_ingress_cidrs" {
-  description = "List of CIDR blocks allowed to access the ALB on ports 80/443. Use ['0.0.0.0/0'] to allow public access. Default blocks all access for security."
-  type        = list(string)
-  default     = ["127.0.0.1/32"]  # Effectively blocks all external access by default
-  validation {
-    condition     = length(var.allowed_ingress_cidrs) > 0
-    error_message = "At least one CIDR block must be specified. Use ['0.0.0.0/0'] for public access."
-  }
-}
-
 # Security - AWS WAF Configuration
 variable "enable_waf" {
   description = "Enable AWS WAF v2 for the Application Load Balancer with managed rule groups"
