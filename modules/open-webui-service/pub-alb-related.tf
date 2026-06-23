@@ -76,36 +76,12 @@ resource "aws_vpc_security_group_egress_rule" "open_webui_alb_egress_to_ecs" {
 
 
 resource "aws_vpc_security_group_ingress_rule" "open_webui_alb_ingress_https" {
-  for_each = toset(var.allowed_ingress_cidrs)
-
   security_group_id = aws_security_group.open_webui_alb_sg.id
-  description       = "HTTPS traffic from ${each.value}"
+  description       = "HTTPS traffic from the internet"
   from_port         = 443
   to_port           = 443
   ip_protocol       = "tcp"
-  cidr_ipv4         = each.value
-}
-
-resource "aws_vpc_security_group_ingress_rule" "open_webui_alb_ingress_http" {
-  for_each = toset(var.allowed_ingress_cidrs)
-
-  security_group_id = aws_security_group.open_webui_alb_sg.id
-  description       = "HTTP traffic from ${each.value}"
-  from_port         = 80
-  to_port           = 80
-  ip_protocol       = "tcp"
-  cidr_ipv4         = each.value
-}
-
-resource "aws_vpc_security_group_ingress_rule" "open_webui_alb_ingress_app" {
-  for_each = toset(var.allowed_ingress_cidrs)
-
-  security_group_id = aws_security_group.open_webui_alb_sg.id
-  description       = "Application traffic from ${each.value}"
-  from_port         = var.open_webui_port
-  to_port           = var.open_webui_port
-  ip_protocol       = "tcp"
-  cidr_ipv4         = each.value
+  cidr_ipv4         = "0.0.0.0/0"
 }
 
 # Route53 domain to expose ALB
