@@ -1,181 +1,117 @@
 # Open WebUI on AWS Fargate
 
-Deploy [Open WebUI](https://github.com/open-webui/open-webui) - a feature-rich, self-hosted AI interface - on AWS using ECS Fargate with Terraform infrastructure-as-code.
+Deploy [Open WebUI](https://github.com/open-webui/open-webui) on AWS using ECS Fargate, Aurora Serverless v2, and a custom container image with extra Python libraries layered on top of the upstream image. Terraform-managed end to end.
 
 ## Overview
 
-This Terraform configuration deploys a production-ready Open WebUI instance with:
-- **Scalable compute**: ECS Fargate tasks with configurable CPU/memory
-- **Persistent storage**: RDS PostgreSQL for data + EFS for files
-- **High availability**: Multi-AZ deployment with Application Load Balancer
-- **Secure access**: HTTPS with ACM certificates + IP allowlist + WAF protection
-- **SSO integration**: AWS Cognito OAuth support
-- **Automated setup**: Lambda function for admin user initialization
-
-## Architecture
+| Component | Role |
+|---|---|
+| **ECS Fargate (ARM64)** | Runs the Open WebUI container; configurable CPU/memory/task-count |
+| **Aurora Serverless v2 (PostgreSQL)** | App data, conversations, users — and the **pgvector** store for RAG embeddings |
+| **EFS** | Shared file storage mounted into every task |
+| **ECR (`openwebui-umbc`)** | Custom image: upstream Open WebUI + `python-docx` and `reportlab` for the document-generation tools |
+| **Application Load Balancer** | Internet-facing HTTPS endpoint (TLS via ACM) |
+| **AWS WAF v2** | Managed rule groups (OWASP, IP reputation, known-bad-inputs, Linux, PHP) — primary public-internet gate |
+| **AWS Cognito (optional)** | OAuth/OIDC SSO; can be set to fully replace local auth |
+| **Lambda** | One-shot admin user bootstrap on first deploy |
+| **Secrets Manager** | DB master password, admin credentials, WEBUI_SECRET_KEY, Cognito client secret |
+| **Route53 + ACM** | DNS + TLS certificate |
 
 ```
-Internet
-    │
-    ↓
-  [WAF] ← AWS Managed Rules (OWASP, IP reputation, etc.)
-    │
-    ↓
-  [ALB] ← IP Allowlist (configurable)
-    │
-    ↓ HTTPS/HTTP
-  [ECS Fargate Service]
-    ├─→ [RDS PostgreSQL] (database)
-    ├─→ [EFS] (file storage)
-    └─→ [Secrets Manager] (credentials)
+Internet ──► WAF ──► ALB (HTTPS, 0.0.0.0/0) ──► ECS Fargate (ARM64)
+                                                  │
+                                                  ├──► Aurora Serverless v2 (data + pgvector)
+                                                  ├──► EFS (files)
+                                                  └──► Secrets Manager (creds)
 
-  [Lambda] → Admin initialization
-  [Route53] → DNS management
+Lambda ─► creates initial admin user, stores credentials in Secrets Manager
 ```
 
-### Components
-
-| Component | Purpose |
-|-----------|---------|
-| **AWS WAF** | Web application firewall with managed rule groups for OWASP Top 10, IP reputation, and exploit protection |
-| **ECS Fargate** | Runs Open WebUI containers (scalable, serverless) |
-| **Application Load Balancer** | Public-facing HTTPS endpoint with SSL/TLS |
-| **RDS PostgreSQL** | Persistent database for conversations, settings, users |
-| **EFS** | Shared file storage for uploaded files and models |
-| **Lambda** | Automatically creates admin user on first deployment |
-| **Secrets Manager** | Stores admin credentials and OAuth secrets |
-| **Route53** | DNS management for custom domain |
-| **ACM** | SSL/TLS certificate management |
-| **VPC Security Groups** | Network-level security with IP allowlisting |
-
-## Features
-
-### Security
-- ✅ **AWS WAF**: Protection against OWASP Top 10, SQL injection, XSS, and known malicious IPs
-- ✅ **IP Allowlist**: Restrict access to specific IPs/ranges (configurable)
-- ✅ **HTTPS**: SSL/TLS encryption with ACM certificates
-- ✅ **AWS Cognito SSO**: Single sign-on with OAuth 2.0
-- ✅ **Secrets Management**: Credentials stored in AWS Secrets Manager
-- ✅ **VPC Isolation**: Private subnets for compute, public for load balancer
-- ✅ **Encryption**: Database and file storage encrypted at rest
-
-### High Availability
-- ✅ **Multi-AZ**: Spans multiple availability zones
-- ✅ **Auto-scaling**: Configurable task count
-- ✅ **Health checks**: Automatic unhealthy task replacement
-- ✅ **Load balancing**: Even distribution of traffic
-
-### Configurability
-- ✅ **OAuth/SSO**: Disable local auth, force SSO login
-- ✅ **User roles**: Configure default user permissions
-- ✅ **API access**: Enable/disable API key authentication
-- ✅ **Signup control**: Enable/disable new user registration
-- ✅ **Direct connections**: Allow users to add their own LLM providers
+The ALB security group allows HTTPS from anywhere on the internet. Access is gated by WAF (managed rule groups) plus the application's own auth (Cognito OAuth and/or local password). There is no IP allowlist at the SG level.
 
 ## Prerequisites
 
-### Required
-1. **AWS Account** with appropriate permissions:
-   - VPC, ECS, RDS, EFS, Lambda, ALB, Route53, ACM, Secrets Manager
+- **AWS account** with VPC, ECS, RDS, EFS, Lambda, ALB, Route53, ACM, ECR, Secrets Manager, WAF, IAM permissions.
+- **Existing VPC** with public subnets (for the ALB) and private subnets (for ECS and Aurora).
+- **Route53 hosted zone** + **ACM certificate** covering the domain you'll point at the ALB.
+- **Terraform** ≥ 1.0, **AWS CLI**, **Docker** (with `buildx`) for image builds.
+- Optional: **AWS Cognito User Pool** if you want SSO.
 
-2. **Terraform** >= 1.0
-   ```bash
-   brew install terraform  # macOS
-   ```
+## Repository layout
 
-3. **AWS CLI** configured with credentials
-   ```bash
-   aws configure
-   ```
-
-4. **Existing AWS Infrastructure**:
-   - VPC with public and private subnets
-   - Route53 hosted zone (for custom domain)
-   - ACM certificate (for HTTPS)
-
-### Optional
-- AWS Cognito User Pool (for SSO integration)
-
-## Quick Start
-
-### 1. Clone and Configure
-
-```bash
-git clone <your-repo-url>
-cd open-webui-aws-fargate
+```
+.
+├── main.tf, variables.tf, outputs.tf    # Root module
+├── backend.tf                            # S3 backend stub (use_lockfile = true)
+├── backend.hcl.example                   # Copy to backend.hcl with real bucket name
+├── terraform.tfvars.example              # Copy to terraform.tfvars and fill in
+├── WAF_IMPORT.md                         # Importing an existing WAF Web ACL
+├── bootstrap/                            # One-time: creates the S3 state bucket
+├── modules/open-webui-service/           # The actual service module
+│   ├── ecs-related.tf                    # Cluster, service, task def, log group
+│   ├── ecr-related.tf                    # ECR repo for the custom image
+│   ├── efs-related.tf                    # File system + mount targets
+│   ├── rds-related.tf                    # Aurora Serverless v2 cluster + instance
+│   ├── pub-alb-related.tf                # ALB, listener, SG, Route53 record
+│   ├── waf-related.tf                    # WAF Web ACL + managed rule groups
+│   ├── lambda-admin-init.tf              # Admin bootstrap Lambda
+│   └── locals.tf, variables.tf, outputs.tf, providers.tf
+├── docker/                               # Custom image overlay
+│   ├── Dockerfile                        # FROM ${BASE_IMAGE}, layer in extras
+│   └── requirements-extras.txt           # Pinned pip deps (python-docx, reportlab)
+├── scripts/
+│   ├── build-and-push.sh                 # Build + push the custom image to ECR
+│   └── reembed-files.py                  # One-shot pgvector backfill helper
+└── tools/                                # Open WebUI tool source files (see tools/README.md)
 ```
 
-### 2. Set Up Remote State (First Time Only)
+## First-time deploy
 
-**If this is a new deployment**, you need to create the S3 bucket for Terraform state:
+### 1. Bootstrap remote state
+
+The main project's state lives in S3. Create the bucket once per AWS account:
 
 ```bash
 cd bootstrap
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with a globally unique bucket name
+# Edit terraform.tfvars: set a globally-unique bucket name
 terraform init
 terraform apply
 cd ..
 ```
 
-See [bootstrap/README.md](bootstrap/README.md) for detailed instructions.
+Note the `s3_bucket_name` output — you'll plug it into `backend.hcl`.
 
-### 3. Configure Backend
+> **Note on locking:** the main backend uses S3-native locking (`use_lockfile = true`). The bootstrap module currently also provisions a DynamoDB lock table; that table is now unused and will be removed in a follow-up. You don't need to reference it anywhere.
 
-Create your backend configuration file (not tracked in git):
+See [bootstrap/README.md](bootstrap/README.md) for details.
+
+### 2. Configure the backend
 
 ```bash
 cp backend.hcl.example backend.hcl
+# Edit backend.hcl with your bucket name from step 1
 ```
 
-Edit `backend.hcl` with your S3 bucket name from step 2:
+`backend.hcl` is gitignored. Each user/environment maintains their own.
 
-```hcl
-bucket         = "your-org-environment-openwebui-state-YYYYMMDD"
-key            = "open-webui-fargate/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "terraform-state-lock"
-encrypt        = true
-```
-
-**For Team Members**: If joining an existing project, get the `backend.hcl` values from your team lead or AWS Console.
-
-### 4. Create Configuration
+### 3. Configure the deployment
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` with your values:
+Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email, etc. `terraform.tfvars` is gitignored — it contains credentials.
+
+For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-# AWS Configuration
-region = "us-east-1"
-azs    = ["us-east-1a", "us-east-1b"]
-
-# Network (use your existing VPC)
-vpc_id         = "vpc-xxxxx"
-vpc_cidr_block = "10.0.0.0/16"
-ecs_subnet_ids = ["subnet-xxxxx", "subnet-xxxxx"]  # Private subnets
-alb_subnet_ids = ["subnet-xxxxx", "subnet-xxxxx"]  # Public subnets
-
-# Domain & SSL
-open_webui_domain              = "openwebui.example.com"
-open_webui_domain_route53_zone = "Z1234567890ABC"
-open_webui_domain_ssl_cert_arn = "arn:aws:acm:us-east-1:..."
-
-# Security - IMPORTANT!
-# Default blocks all access. Set your IP address(es):
-allowed_ingress_cidrs = ["YOUR.IP.ADDRESS/32"]
-# For public access: ["0.0.0.0/0"]
-# Multiple IPs: ["1.2.3.4/32", "5.6.7.0/24"]
-
-# Admin User
-admin_name  = "Admin User"
-admin_email = "admin@example.com"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.6.18"
 ```
 
-### 5. Deploy
+This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
+
+### 4. Initial apply
 
 ```bash
 terraform init -backend-config=backend.hcl
@@ -183,358 +119,200 @@ terraform plan
 terraform apply
 ```
 
-Deployment takes ~10-15 minutes. The Lambda function will automatically:
-1. Wait for the service to be healthy
-2. Create the initial admin user
-3. Store credentials in Secrets Manager
+This takes ~10–15 minutes and creates everything including the `openwebui-umbc` ECR repository. After it completes:
 
-### 4. Get Admin Credentials
+- The Lambda will create the admin user and store credentials in Secrets Manager.
+- The Aurora cluster is up but the app is running the upstream image — the document-generation tools won't work yet because `python-docx` and `reportlab` aren't installed.
+
+### 5. Build and push the custom image
 
 ```bash
-terraform output admin_credentials_command
+./scripts/build-and-push.sh
 ```
 
-Run the output command to retrieve the admin password:
-```bash
-aws secretsmanager get-secret-value --secret-id openwebui-admin-credentials --query SecretString --output text | jq -r '.password'
-```
+The script:
+- Reads the current `open_webui_image_url` from `terraform.tfvars` to learn the upstream tag.
+- Logs into ECR.
+- Builds `docker/Dockerfile` for `linux/arm64` via `buildx`, layering `docker/requirements-extras.txt` onto the upstream image.
+- Pushes to `${account}.dkr.ecr.${region}.amazonaws.com/openwebui-umbc:${upstream_tag}-extras1` (and `:latest`).
 
-### 5. Access Open WebUI
+The final line prints the new image URL.
 
-Visit your configured domain (e.g., `https://openwebui.example.com`) and log in with:
-- Email: (from `admin_email` variable)
-- Password: (from Secrets Manager)
+### 6. Switch to the custom image
 
-## Configuration Guide
-
-### IP Allowlist Security
-
-**Default**: `["127.0.0.1/32"]` - blocks all external access
-
-Configure `allowed_ingress_cidrs` in [terraform.tfvars](terraform.tfvars):
+Update `terraform.tfvars`:
 
 ```hcl
-# Single IP
-allowed_ingress_cidrs = ["203.0.113.10/32"]
-
-# Multiple IPs/ranges
-allowed_ingress_cidrs = ["203.0.113.10/32", "198.51.100.0/24"]
-
-# Office network
-allowed_ingress_cidrs = ["YOUR.OFFICE.IP/28"]
-
-# Public access (not recommended)
-allowed_ingress_cidrs = ["0.0.0.0/0"]
+open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.6.18-extras1"
 ```
 
-After changing, apply the update:
+Apply:
+
 ```bash
-terraform apply -target=module.open_webui_service.aws_vpc_security_group_ingress_rule.open_webui_alb_ingress_https
-terraform apply -target=module.open_webui_service.aws_vpc_security_group_ingress_rule.open_webui_alb_ingress_http
+terraform apply
 ```
 
-### AWS Cognito SSO Setup
+ECS rolls onto the new image. The document-generation tools (Word, PowerPoint, Spreadsheet, PDF) now have their dependencies.
 
-1. **Create Cognito User Pool** (if not already done)
-2. **Configure App Client**:
-   - Create an app client with client secret
-   - Set callback URL: `https://your-domain.com/oauth/callback`
-   - Enable OAuth 2.0 flows
+### 7. Install the tools
 
-3. **Update terraform.tfvars**:
-```hcl
-enable_oauth_signup       = true
-oauth_provider_name       = "Company SSO"
-cognito_user_pool_id      = "us-east-1_ABC123"
-cognito_app_client_id     = "your-client-id"
-cognito_app_client_secret = "your-client-secret"
-oauth_allowed_domains     = "company.com"
-disable_local_auth        = true   # Optional: disable password login
-force_oauth_login         = true   # Optional: force SSO
-```
+Tools are stored in the Open WebUI database, not Terraform. Paste each `tools/*.py` file into **Workspace → Tools** through the admin UI. See [tools/README.md](tools/README.md) for the full workflow.
 
-### Resource Sizing
+### 8. Retrieve admin credentials
 
-Adjust in [terraform.tfvars](terraform.tfvars):
-
-```hcl
-# Small (development)
-open_webui_task_cpu   = 512   # 0.5 vCPU
-open_webui_task_mem   = 1024  # 1 GB
-open_webui_task_count = 1
-
-# Medium (production)
-open_webui_task_cpu   = 1024  # 1 vCPU
-open_webui_task_mem   = 2048  # 2 GB
-open_webui_task_count = 2
-
-# Large (high traffic)
-open_webui_task_cpu   = 2048  # 2 vCPU
-open_webui_task_mem   = 4096  # 4 GB
-open_webui_task_count = 3
-```
-
-### AWS WAF Configuration
-
-**Default**: WAF is enabled with AWS Managed Rule Groups
-
-The WAF configuration includes:
-1. **Amazon IP Reputation List** - Blocks known malicious IPs
-2. **Common Rule Set** - OWASP Top 10 protection
-3. **Known Bad Inputs** - Exploit pattern blocking
-4. **Linux Rule Set** - Linux-specific protections
-5. **PHP Rule Set** - PHP vulnerability protection
-
-#### Enable/Disable WAF
-
-In [terraform.tfvars](terraform.tfvars):
-
-```hcl
-# Enable WAF (recommended for production)
-enable_waf = true
-
-# Optional: Enable WAF logging to CloudWatch
-waf_enable_logging     = true
-waf_log_retention_days = 7  # Days to keep logs
-```
-
-#### Importing Existing WAF
-
-If you manually created a WAF, see [WAF_IMPORT.md](WAF_IMPORT.md) for step-by-step import instructions.
-
-#### Monitoring WAF Activity
-
-**View blocked requests in AWS Console:**
-- Navigate to **WAF & Shield** → **Web ACLs** → **openwebui-waf**
-- Click **Overview** tab to see request metrics
-- Click **Sampled requests** tab to see blocked traffic
-
-**CloudWatch Metrics:**
 ```bash
-# View WAF metrics
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/WAFV2 \
-  --metric-name BlockedRequests \
-  --dimensions Name=Rule,Value=ALL Name=WebACL,Value=openwebui-waf \
-  --statistics Sum \
-  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
-  --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
-  --period 300
+aws secretsmanager get-secret-value \
+  --secret-id $(terraform output -raw admin_credentials_secret_arn) \
+  --query SecretString --output text | jq
 ```
 
-**WAF Logs (if enabled):**
+Log in at your configured domain with the email and password from the secret.
+
+## Day-2 operations
+
+### Updating Open WebUI to a newer upstream version
+
 ```bash
+OPENWEBUI_UPSTREAM=v0.6.20 ./scripts/build-and-push.sh
+```
+
+The `OPENWEBUI_UPSTREAM` env var is required once `terraform.tfvars` is already pointing at ECR (the script can't infer the upstream tag from an ECR URL). Then update `open_webui_image_url` in `terraform.tfvars` to the new tag and `terraform apply`.
+
+### Adding a Python dependency for a tool
+
+1. Pin the version in `docker/requirements-extras.txt` (only add libs that aren't already in upstream's `backend/requirements.txt`).
+2. Bump the tag suffix and rebuild:
+   ```bash
+   ./scripts/build-and-push.sh --tag-suffix extras2
+   ```
+3. Update `open_webui_image_url` in `terraform.tfvars` to the new `-extras2` tag.
+4. `terraform apply`.
+
+### Re-embedding files after the pgvector cutover (one-shot)
+
+Files uploaded under the previous ChromaDB-backed vector store don't appear in pgvector after the switch. To backfill:
+
+```bash
+export OPENWEBUI_ADMIN_TOKEN="$(get-admin-api-key)"
+python3 scripts/reembed-files.py            # process pending/failed files
+python3 scripts/reembed-files.py --status   # check progress
+python3 scripts/reembed-files.py --reset    # start fresh
+```
+
+State is tracked in `scripts/reembed-state.json` (gitignored) so re-runs only retry failures.
+
+### Viewing logs
+
+```bash
+# Application
+aws logs tail /ecs/openwebui-service --follow
+
+# Admin-bootstrap Lambda
+aws logs tail /aws/lambda/openwebui-admin-init --follow
+
+# WAF (if waf_enable_logging = true)
 aws logs tail /aws/wafv2/openwebui --follow
 ```
 
-## Remote State Setup (Recommended)
-
-For team collaboration and state safety, configure remote state storage:
-
-See [bootstrap/README.md](bootstrap/README.md) for detailed instructions.
-
-**Quick summary**:
-```bash
-cd bootstrap
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with unique bucket name
-terraform init && terraform apply
-
-cd ..
-cp backend.tf.example backend.tf
-# Edit backend.tf with bucket/table names from bootstrap output
-terraform init -migrate-state
-```
-
-## Operations
-
-### Viewing Logs
-
-**ECS Task Logs**:
-```bash
-aws logs tail /ecs/openwebui-service --follow
-```
-
-**Lambda Initialization Logs**:
-```bash
-aws logs tail /aws/lambda/openwebui-admin-init --follow
-```
+Container Insights is set to `enhanced` — per-task and per-container metrics are in CloudWatch under `ECS/ContainerInsights`.
 
 ### Scaling
 
-Update `open_webui_task_count` in terraform.tfvars:
-```hcl
-open_webui_task_count = 5  # Scale to 5 tasks
-```
+Update `open_webui_task_count`, `open_webui_task_cpu`, or `open_webui_task_mem` in `terraform.tfvars` and `terraform apply`. Aurora scales automatically between `min_capacity` and `max_capacity` ACU (currently 0.5 → 4.0).
 
-Apply changes:
-```bash
-terraform apply -target=module.open_webui_service.aws_ecs_service.open_webui
-```
-
-### Updating Open WebUI Version
-
-Update the image tag in terraform.tfvars:
-```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.2.0"
-```
-
-Apply and force new deployment:
-```bash
-terraform apply
-aws ecs update-service --cluster openwebui-cluster --service openwebui-service --force-new-deployment
-```
-
-### Destroying Infrastructure
-
-**Warning**: This will delete all data including databases and files!
+### Destroying
 
 ```bash
 terraform destroy
 ```
 
-To preserve data, first:
-1. Take RDS snapshot
-2. Backup EFS data
-3. Export important conversations/settings
+**Warning:** wipes the Aurora cluster (final snapshot is taken — see `final_snapshot_identifier` in `rds-related.tf`), the EFS file system, and Secrets Manager entries (subject to the 7-day recovery window).
+
+## Configuration reference
+
+### OAuth/SSO (AWS Cognito)
+
+1. Create a Cognito User Pool + App Client (with client secret).
+2. Set the callback URL to `https://your-domain.com/oauth/oidc/callback`.
+3. In `terraform.tfvars`:
+   ```hcl
+   enable_oauth_signup       = true
+   oauth_provider_name       = "Company SSO"
+   cognito_user_pool_id      = "us-east-1_ABC123"
+   cognito_app_client_id     = "..."
+   cognito_app_client_secret = "..."
+   oauth_allowed_domains     = "company.com"   # or "*"
+   disable_local_auth        = true            # optional: kill password login
+   force_oauth_login         = true            # optional: skip the local-login form
+   ```
+
+### WAF
+
+Enabled by default. Disable with `enable_waf = false`. Enable request logging with `waf_enable_logging = true` (CloudWatch Log Group `/aws/wafv2/openwebui`, retention `waf_log_retention_days`).
+
+To import an existing manually-created Web ACL into this Terraform state, see [WAF_IMPORT.md](WAF_IMPORT.md).
+
+### Resource sizing rules of thumb
+
+| Load | Task size | Task count | Aurora max ACU |
+|---|---|---|---|
+| Dev / demo | 512 CPU / 1 GB | 1 | 1.0 |
+| Small prod | 1024 CPU / 2 GB | 2 | 2.0 |
+| Standard prod (default) | 1024 CPU / 2 GB | 3 | 4.0 |
+| Heavy RAG | 2048 CPU / 4 GB | 3 | 8.0 |
+
+pgvector embedding workloads land on Aurora — bump max ACU before you see throttling.
+
+## Cost estimates
+
+Rough monthly cost for the **default standard-prod** sizing in `us-east-1`. Aurora and WAF dominate; everything else is small.
+
+| Service | Configuration | Approx monthly |
+|---|---|---|
+| ECS Fargate (ARM64) | 3 tasks × (1 vCPU, 2 GB), 24/7 | ~$72 |
+| Aurora Serverless v2 | 0.5–4.0 ACU, avg ~1.5 ACU, storage ~$0.10/GB-mo | ~$130–250 |
+| EFS | Few GB, infrequent access | <$5 |
+| ALB | 1 ALB + low LCU | ~$22 |
+| WAF | Web ACL + 5 managed rule groups | ~$11 (+ $0.60 / M requests) |
+| ECR | <1 GB stored, occasional pulls | <$1 |
+| CloudWatch (enhanced Container Insights) | 3 tasks | ~$10–20 |
+| Secrets Manager | 4 secrets | ~$2 |
+| Route53 hosted zone | 1 zone | $0.50 |
+| **Total** | | **~$250–380/mo** |
+
+Numbers are ballpark — Aurora ACU usage swings the total by a lot. If the cluster sits idle, expect closer to the low end; under embedding-heavy load, closer to the high end. CloudWatch Container Insights (enhanced tier) is not free — disable it (`containerInsights = "disabled"` in `ecs-related.tf`) if cost matters more than observability.
 
 ## Troubleshooting
 
-### Issue: Cannot access Open WebUI (403/timeout)
+**Can't reach the URL (timeout)**
+- Check ALB target group health: `aws elbv2 describe-target-health --target-group-arn ...`
+- Check WAF blocked requests: WAF console → `openwebui-waf` → Sampled requests.
 
-**Solution**: Check IP allowlist configuration
-```bash
-# Get your current IP
-curl ifconfig.me
+**403 from the app**
+- Likely WAF. Confirm in the WAF Sampled-requests view.
 
-# Verify security group rules
-aws ec2 describe-security-groups --group-ids <alb-sg-id>
-```
-
-Update `allowed_ingress_cidrs` in terraform.tfvars and reapply.
-
-### Issue: Admin user not created
-
-**Solution**: Check Lambda logs
+**Admin user wasn't created**
 ```bash
 aws logs tail /aws/lambda/openwebui-admin-init --follow
+aws lambda invoke --function-name openwebui-admin-init response.json && cat response.json
 ```
 
-Manually trigger Lambda:
-```bash
-aws lambda invoke --function-name openwebui-admin-init response.json
-cat response.json
-```
+**Tasks won't start / unhealthy**
+- DB connection: check the Aurora SG allows ingress from the ECS SG (see `rds-related.tf`).
+- EFS mount: check mount targets exist in each AZ.
+- OOM: bump `open_webui_task_mem`.
+- Image pull: confirm the task execution role can pull from ECR (the default policy includes `AmazonECSTaskExecutionRolePolicy`).
 
-### Issue: Service won't start / unhealthy
+**Vector search returns nothing for old files**
+- Run `scripts/reembed-files.py` (see day-2 ops).
 
-**Solution**: Check ECS task logs
-```bash
-# Get task ARN
-aws ecs list-tasks --cluster openwebui-cluster --service openwebui-service
-
-# Get task details
-aws ecs describe-tasks --cluster openwebui-cluster --tasks <task-arn>
-
-# View logs
-aws logs tail /ecs/openwebui-service --follow
-```
-
-Common causes:
-- Database connection issues (check RDS security group)
-- EFS mount issues (check EFS mount targets)
-- Out of memory (increase `open_webui_task_mem`)
-
-### Issue: OAuth/SSO not working
-
-**Solution**: Verify Cognito configuration
-1. Check callback URL matches: `https://your-domain.com/oauth/callback`
-2. Verify client secret is correct
-3. Check CloudWatch logs for OAuth errors
-4. Ensure Cognito User Pool is in same region
-
-## Security Best Practices
-
-1. **IP Allowlist**: Always restrict `allowed_ingress_cidrs` to known IPs
-2. **Secrets Rotation**: Regularly rotate admin credentials in Secrets Manager
-3. **Monitoring**: Enable CloudTrail and CloudWatch alarms
-4. **Backups**: Enable automated RDS snapshots and EFS backups
-5. **Updates**: Keep Open WebUI and Terraform providers updated
-6. **IAM**: Use least-privilege IAM roles
-7. **SSL/TLS**: Ensure ACM certificate is valid and auto-renewing
-
-## Cost Estimates
-
-Approximate monthly costs (us-east-1, low traffic):
-
-| Service | Configuration | Monthly Cost |
-|---------|--------------|--------------|
-| ECS Fargate | 1 task (1 vCPU, 2GB) | ~$30 |
-| RDS PostgreSQL | db.t3.micro | ~$15 |
-| EFS | 1GB storage | ~$0.30 |
-| ALB | 1 ALB | ~$16 |
-| AWS WAF | Web ACL + 5 rule groups | ~$11 |
-| Data Transfer | 10GB | ~$1 |
-| **Total** | | **~$73/month** |
-
-Scale up (3 tasks, db.t3.small): **~$141/month**
-
-**Note**: WAF costs ~$11/month base ($5 for Web ACL + ~$6 for managed rule groups). Additional charges apply per million requests ($0.60/million).
-
-## Files Structure
-
-```
-.
-├── main.tf                    # Root module configuration
-├── variables.tf               # Input variables
-├── outputs.tf                 # Output values
-├── terraform.tfvars.example   # Configuration template
-├── backend.tf.example         # Remote state template
-├── WAF_IMPORT.md              # Guide for importing existing WAF
-├── bootstrap/                 # Remote state infrastructure
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── README.md
-└── modules/
-    └── open-webui-service/    # Main service module
-        ├── ecs-related.tf     # ECS cluster, service, task definition
-        ├── efs-related.tf     # EFS file system and mount targets
-        ├── rds-related.tf     # RDS PostgreSQL database
-        ├── pub-alb-related.tf # ALB, security groups, Route53
-        ├── waf-related.tf     # WAF Web ACL and managed rules
-        ├── lambda-admin-init.tf  # Admin user initialization
-        ├── locals.tf          # Local variables
-        ├── variables.tf       # Module inputs
-        └── outputs.tf         # Module outputs
-```
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+**OAuth callback fails**
+- Callback URL must be `https://your-domain.com/oauth/oidc/callback` (note `/oidc/` — not `/callback`).
+- Cognito User Pool must be in the same region as the deployment (or the issuer URL needs to be set accordingly).
 
 ## License
 
-This infrastructure code is provided as-is for educational and production use.
-
-Open WebUI is licensed under the MIT License. See the [Open WebUI repository](https://github.com/open-webui/open-webui) for details.
-
-## Support
-
-- **Open WebUI Issues**: https://github.com/open-webui/open-webui/issues
-- **AWS Documentation**: https://docs.aws.amazon.com/
-- **Terraform Docs**: https://www.terraform.io/docs
-
-## Acknowledgments
-
-- [Open WebUI](https://github.com/open-webui/open-webui) - Amazing self-hosted AI interface
-- AWS for the robust cloud infrastructure
-- HashiCorp Terraform for infrastructure-as-code
+This infrastructure is provided as-is. [Open WebUI](https://github.com/open-webui/open-webui) is MIT-licensed.
 
 ---
 
