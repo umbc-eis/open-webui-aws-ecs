@@ -7,6 +7,8 @@ output "ecs_cluster" {
 output "ecs_task_def" {
   description = "ECS task definition for Open webui (tf resource: aws_ecs_task_definition)"
   value       = aws_ecs_task_definition.open_webui
+  # container_definitions embeds DATABASE_URL, WEBUI_SECRET_KEY and OAUTH_CLIENT_SECRET
+  sensitive = true
 }
 
 output "ecs_service" {
@@ -32,6 +34,8 @@ output "service_endpoint" {
 output "aurora_cluster" {
   description = "Aurora PostgreSQL cluster for Open WebUI (tf resource: aws_rds_cluster)"
   value       = aws_rds_cluster.open_webui
+  # The full resource includes master_password
+  sensitive = true
 }
 
 output "aurora_endpoint" {

@@ -106,7 +106,7 @@ Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email,
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.6.18"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.0"
 ```
 
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
@@ -143,7 +143,7 @@ The final line prints the new image URL.
 Update `terraform.tfvars`:
 
 ```hcl
-open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.6.18-extras1"
+open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.11.0-extras1"
 ```
 
 Apply:
@@ -173,10 +173,54 @@ Log in at your configured domain with the email and password from the secret.
 ### Updating Open WebUI to a newer upstream version
 
 ```bash
-OPENWEBUI_UPSTREAM=v0.6.20 ./scripts/build-and-push.sh
+OPENWEBUI_UPSTREAM=vX.Y.Z ./scripts/build-and-push.sh
 ```
 
 The `OPENWEBUI_UPSTREAM` env var is required once `terraform.tfvars` is already pointing at ECR (the script can't infer the upstream tag from an ECR URL). Then update `open_webui_image_url` in `terraform.tfvars` to the new tag and `terraform apply`.
+
+That plain rolling apply is fine for most releases. It is **not** safe for a release that changes the database schema — see below.
+
+#### If a release requires database migrations
+
+Check the release notes before rolling anything out:
+
+```bash
+gh api repos/open-webui/open-webui/releases/tags/vX.Y.Z -q .body | grep -i "database migration"
+```
+
+If that returns a match, upstream has changed the schema and a plain `terraform apply` will break the service. This deployment runs several tasks behind an ALB with `deployment_minimum_healthy_percent = 100` and `deployment_maximum_percent = 200`, so an apply is a rolling replacement: new tasks migrate the shared Aurora schema while the old tasks are still serving traffic against it. Upstream states that rolling updates are unsupported for schema-changing releases and will cause application failures.
+
+The `deployment_circuit_breaker` block compounds this — if a new task fails its health check after migrating, ECS rolls the task definition back to the previous image pointed at the already-migrated schema, with no corresponding database rollback.
+
+In that case, take the downtime and cut over in stages. Note your current `open_webui_task_count` first; you restore it in step 5.
+
+```bash
+# 1. Snapshot Aurora first. Get the cluster id from the console, or:
+#    aws rds describe-db-clusters --query 'DBClusters[].DBClusterIdentifier'
+aws rds create-db-cluster-snapshot \
+  --db-cluster-identifier <cluster-id> \
+  --db-cluster-snapshot-identifier openwebui-pre-vX-Y-Z
+
+# 2. Drain all tasks. Downtime starts here.
+#    Set open_webui_task_count = 0 in terraform.tfvars
+terraform apply
+
+# 3. Bring up exactly one task on the new image so migrations run alone.
+#    Set open_webui_image_url to the new tag AND open_webui_task_count = 1
+terraform apply
+
+# 4. Confirm the migrations ran and the task is healthy before going further.
+#    Look for "alembic.runtime.migration ... Running upgrade" and the version banner.
+aws logs tail /ecs/<prefix> --follow
+curl -s https://<your-domain>/api/version
+
+# 5. Restore capacity to the value from before step 2.
+terraform apply
+```
+
+Steps 2–4 are the downtime window — expect several minutes, dominated by Fargate cold start (ENI provisioning plus a large image pull) rather than the migrations themselves. Don't skip step 1: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
+
+Avoid `-target` for these applies. The module is `module.open_webui_service`, and a `-target` naming a module that doesn't exist plans zero changes and reports success without doing anything.
 
 ### Adding a Python dependency for a tool
 
@@ -193,6 +237,7 @@ The `OPENWEBUI_UPSTREAM` env var is required once `terraform.tfvars` is already 
 Files uploaded under the previous ChromaDB-backed vector store don't appear in pgvector after the switch. To backfill:
 
 ```bash
+export OPENWEBUI_BASE_URL="$(terraform output -raw open_webui_url)"
 export OPENWEBUI_ADMIN_TOKEN="$(get-admin-api-key)"
 python3 scripts/reembed-files.py            # process pending/failed files
 python3 scripts/reembed-files.py --status   # check progress

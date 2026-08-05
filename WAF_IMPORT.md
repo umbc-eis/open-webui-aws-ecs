@@ -67,11 +67,18 @@ aws elbv2 describe-load-balancers --region us-east-1 \
   --output text
 ```
 
-Then import the association (replace `<ALB-ARN>` with actual ARN):
+Get the Web ACL ARN (this already contains your account id and Web ACL id):
+
+```bash
+aws wafv2 list-web-acls --scope REGIONAL --region us-east-1 \
+  --query 'WebACLs[?Name==`OpenWebUI-WAF`].ARN' --output text
+```
+
+Then import the association, substituting that Web ACL ARN and the ALB ARN from above:
 
 ```bash
 terraform import 'module.open_webui_service.aws_wafv2_web_acl_association.openwebui_alb[0]' \
-  'arn:aws:wafv2:us-east-1:970547376696:regional/webacl/OpenWebUI-WAF/6122ca7b-2310-4197-8015-f3deafb8a766,<ALB-ARN>'
+  '<WEB-ACL-ARN>,<ALB-ARN>'
 ```
 
 **Note**: If this fails with "resource not found", the association doesn't exist yet and Terraform will create it automatically.

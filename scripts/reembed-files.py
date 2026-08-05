@@ -4,6 +4,10 @@
 Maintains a state file (reembed-state.json) tracking which files succeeded
 or failed, so you can re-run to retry only the failures.
 
+Requires:
+    OPENWEBUI_BASE_URL    e.g. https://openwebui.example.com
+    OPENWEBUI_ADMIN_TOKEN an admin API key
+
 Usage:
     python3 scripts/reembed-files.py              # Process pending/failed files
     python3 scripts/reembed-files.py --reset      # Reset state and start fresh
@@ -12,7 +16,7 @@ Usage:
 
 import json, urllib.request, os, time, sys, argparse
 
-BASE = "https://openwebui.aws.genai.umbc.edu"
+BASE = os.environ.get("OPENWEBUI_BASE_URL", "").rstrip("/")
 STATE_FILE = os.path.join(os.path.dirname(__file__), "reembed-state.json")
 DELAY_BETWEEN_FILES = 8
 RETRY_ATTEMPTS = 4
@@ -169,6 +173,11 @@ def main():
     if args.status:
         show_status(state)
         return
+
+    if not BASE:
+        print("ERROR: OPENWEBUI_BASE_URL environment variable not set")
+        print("       e.g. export OPENWEBUI_BASE_URL=https://openwebui.example.com")
+        sys.exit(1)
 
     headers = get_headers()
     process_files(headers, state)

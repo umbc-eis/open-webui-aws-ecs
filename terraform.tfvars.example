@@ -15,8 +15,8 @@ open_webui_port       = 8080
 # First apply: point at the upstream image so the stack (including the ECR
 # repo) comes up. After the initial apply, run scripts/build-and-push.sh
 # and update this URL to the ECR-hosted custom image.
-#   e.g. "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.6.18-extras1"
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.6.18"
+#   e.g. "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.11.0-extras1"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.0"
 
 open_webui_domain              = "openwebui.example.com"
 open_webui_domain_route53_zone = "ZXXXXXXXXXXXXX"
