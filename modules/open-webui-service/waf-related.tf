@@ -152,6 +152,18 @@ resource "aws_wafv2_web_acl" "openwebui" {
       managed_rule_group_statement {
         vendor_name = "AWS"
         name        = "AWSManagedRulesPHPRuleSet"
+
+        # Count-only override: this rule flags PHP high-risk function/variable
+        # patterns in request bodies. Open WebUI is a Python/FastAPI app, and
+        # this rule false-positives on legitimate Python source submitted to
+        # admin endpoints (tool/function create, /api/v1/utils/code/format),
+        # returning a 403 that the frontend surfaces as a JSON parse error.
+        rule_action_override {
+          name = "PHPHighRiskMethodsVariables_BODY"
+          action_to_use {
+            count {}
+          }
+        }
       }
     }
 
