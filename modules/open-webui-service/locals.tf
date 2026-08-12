@@ -9,12 +9,12 @@ locals {
   database_url = "postgresql://${aws_rds_cluster.open_webui.master_username}:${urlencode(random_password.db_master_password.result)}@${aws_rds_cluster.open_webui.endpoint}:5432/${aws_rds_cluster.open_webui.database_name}"
 
   # Compute OAuth/Cognito configuration
-  oauth_enabled         = var.enable_oauth_signup && var.cognito_user_pool_id != ""
-  cognito_region        = var.cognito_user_pool_id != "" ? split("_", var.cognito_user_pool_id)[0] : var.region
-  cognito_issuer        = var.cognito_user_pool_id != "" ? "https://cognito-idp.${local.cognito_region}.amazonaws.com/${var.cognito_user_pool_id}" : ""
-  openid_provider_url   = local.cognito_issuer != "" ? "${local.cognito_issuer}/.well-known/openid-configuration" : ""
-  oauth_redirect_uri    = local.alb_configs.create_domain ? "https://${var.open_webui_domain}/oauth/oidc/callback" : "http://${aws_lb.openwebui.dns_name}/oauth/oidc/callback"
-  webui_url             = local.alb_configs.create_domain ? "https://${var.open_webui_domain}" : "http://${aws_lb.openwebui.dns_name}"
+  oauth_enabled       = var.enable_oauth_signup && var.cognito_user_pool_id != ""
+  cognito_region      = var.cognito_user_pool_id != "" ? split("_", var.cognito_user_pool_id)[0] : var.region
+  cognito_issuer      = var.cognito_user_pool_id != "" ? "https://cognito-idp.${local.cognito_region}.amazonaws.com/${var.cognito_user_pool_id}" : ""
+  openid_provider_url = local.cognito_issuer != "" ? "${local.cognito_issuer}/.well-known/openid-configuration" : ""
+  oauth_redirect_uri  = local.alb_configs.create_domain ? "https://${var.open_webui_domain}/oauth/oidc/callback" : "http://${aws_lb.openwebui.dns_name}/oauth/oidc/callback"
+  webui_url           = local.alb_configs.create_domain ? "https://${var.open_webui_domain}" : "http://${aws_lb.openwebui.dns_name}"
 
   # Base environment variables
   base_environment = [
@@ -29,8 +29,8 @@ locals {
     { name = "WEBUI_URL", value = local.webui_url },
     { name = "ENABLE_API_KEY", value = tostring(var.enable_api_key) },
     { name = "ENABLE_DIRECT_CONNECTIONS", value = tostring(var.enable_direct_connections) },
-    { name = "ENABLE_OLLAMA_API", value = "False" },  # Disabled - not using Ollama
-    { name = "VECTOR_DB", value = "pgvector" }        # Use PostgreSQL for vector storage instead of ChromaDB
+    { name = "ENABLE_OLLAMA_API", value = "False" }, # Disabled - not using Ollama
+    { name = "VECTOR_DB", value = "pgvector" }       # Use PostgreSQL for vector storage instead of ChromaDB
   ]
 
   # OAuth environment variables (only if OAuth is enabled)

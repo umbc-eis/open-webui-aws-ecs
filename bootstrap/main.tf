@@ -74,7 +74,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
     status = "Enabled"
 
     noncurrent_version_expiration {
-      noncurrent_days = 90  # Keep old versions for 90 days
+      noncurrent_days = 90 # Keep old versions for 90 days
     }
   }
 
@@ -91,7 +91,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
 # DynamoDB table for state locking
 resource "aws_dynamodb_table" "terraform_locks" {
   name         = var.dynamodb_table_name
-  billing_mode = "PAY_PER_REQUEST"  # On-demand pricing
+  billing_mode = "PAY_PER_REQUEST" # On-demand pricing
   hash_key     = "LockID"
 
   attribute {

@@ -7,12 +7,12 @@ set -euo pipefail
 # Reads the upstream image tag from terraform.tfvars (open_webui_image_url).
 # If that line points at GHCR (initial state), the upstream tag is taken from
 # there. If it points at the ECR repo (steady state), the script falls back to
-# the OPENWEBUI_UPSTREAM env var, which must be set as e.g. v0.9.5.
+# the OPENWEBUI_UPSTREAM env var, which must be set as e.g. v0.11.0.
 #
 # Usage:
 #   ./scripts/build-and-push.sh
 #   ./scripts/build-and-push.sh --tag-suffix extras2
-#   OPENWEBUI_UPSTREAM=v0.9.6 ./scripts/build-and-push.sh
+#   OPENWEBUI_UPSTREAM=v0.11.0 ./scripts/build-and-push.sh
 
 REPO_NAME="openwebui-umbc"
 PLATFORM="linux/arm64"

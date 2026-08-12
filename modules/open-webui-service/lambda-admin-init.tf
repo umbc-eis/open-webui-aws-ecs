@@ -7,7 +7,7 @@ data "archive_file" "admin_init_lambda" {
   output_path = "${path.module}/lambda_admin_init.zip"
 
   source {
-    content = <<-EOF
+    content  = <<-EOF
       import json
       import boto3
       import urllib3
