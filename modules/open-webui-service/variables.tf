@@ -55,6 +55,12 @@ variable "open_webui_task_count" {
   default     = 3
 }
 
+variable "open_webui_health_check_grace_period" {
+  description = "Seconds ECS ignores ALB health checks after a task starts. Must exceed the longest expected Alembic migration, or ECS kills the migrating task."
+  type        = number
+  default     = 600
+}
+
 variable "open_webui_port" {
   description = "Port that open webui is open for"
   type        = number
