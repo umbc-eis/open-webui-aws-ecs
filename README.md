@@ -102,12 +102,14 @@ cp backend.hcl.example backend.hcl
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email, etc. `terraform.tfvars` is gitignored — it contains credentials.
+Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email, etc. `terraform.tfvars` is gitignored: it holds no secrets, but it is specific to your environment and this repo is public. If you are joining an existing deployment, skip the copy above and run `./scripts/config.sh pull` instead — see [Sharing configuration with other operators](#sharing-configuration-with-other-operators).
+
+**If you set `enable_oauth_signup = true`, create the OAuth client secret in Secrets Manager before step 4.** Terraform looks it up by name, so the apply fails without it. See [OAuth/SSO (AWS Cognito)](#oauthsso-aws-cognito).
 
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.0"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.1"
 ```
 
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
@@ -179,6 +181,12 @@ OPENWEBUI_UPSTREAM=vX.Y.Z ./scripts/build-and-push.sh
 
 The `OPENWEBUI_UPSTREAM` env var is required once `terraform.tfvars` is already pointing at ECR (the script can't infer the upstream tag from an ECR URL). Then update `open_webui_image_url` in `terraform.tfvars` to the new tag and `terraform apply`.
 
+Publish the new tag so other operators don't plan against the old one:
+
+```bash
+./scripts/config.sh push
+```
+
 That plain rolling apply is fine for most releases. It is **not** safe for a release that changes the database schema — see below.
 
 #### If a release requires database migrations
@@ -239,6 +247,9 @@ curl -s https://<your-domain>/api/version
 
 # 5. Restore capacity to the value from before step 2.
 terraform apply
+
+# 6. Publish the new image tag for other operators.
+./scripts/config.sh push
 ```
 
 Steps 2–4 are the downtime window. With the drain skipped it is a few minutes; the v0.11.0 → v0.11.1 upgrade measured about two. Fargate cold start (ENI provisioning plus a large image pull) is usually the bigger share, but a release that builds indexes on `chat` or `chat_message` can outweigh it on a large database. Take the snapshot in step 1 *before* draining, so it costs no downtime — a snapshot of a running cluster is crash-consistent and Postgres recovers from it. Don't skip it: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
@@ -328,7 +339,9 @@ Update `open_webui_task_count`, `open_webui_task_cpu`, or `open_webui_task_mem` 
 terraform destroy
 ```
 
-**Warning:** wipes the Aurora cluster (final snapshot is taken — see `final_snapshot_identifier` in `rds-related.tf`), the EFS file system, and Secrets Manager entries (subject to the 7-day recovery window).
+**Warning:** wipes the Aurora cluster (final snapshot is taken — see `final_snapshot_identifier` in `rds-related.tf`), the EFS file system, and the Terraform-managed Secrets Manager entries (the database password and admin credentials, subject to the 7-day recovery window).
+
+The OAuth client secret is *not* removed: Terraform only reads its ARN, so it survives a destroy and is reused if you rebuild. Delete it by hand if you mean to retire the deployment entirely.
 
 ## Configuration reference
 
