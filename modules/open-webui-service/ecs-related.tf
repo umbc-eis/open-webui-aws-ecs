@@ -47,6 +47,17 @@ data "aws_iam_policy_document" "open_webui_ecs_iamr_assume" {
 }
 
 # Custom IAM policy for Secrets Manager access (scoped to specific secrets)
+# The OAuth client secret is issued by the identity provider, not by this stack,
+# so Terraform treats it as an external input: it resolves the ARN and wires it
+# into the task definition, but never reads or writes the value. Create and
+# populate the secret before the first apply (see README) — a task that cannot
+# read it will fail to start, and with force_oauth_login there is no other way
+# to sign in.
+data "aws_secretsmanager_secret" "oauth_client_secret" {
+  count = local.oauth_enabled ? 1 : 0
+  name  = var.cognito_client_secret_name != "" ? var.cognito_client_secret_name : "${var.prefix}-oauth-client-secret"
+}
+
 resource "aws_iam_policy" "ecs_secrets_read" {
   name        = "${var.prefix}-ecs-secrets-read"
   description = "Allow ECS tasks to read specific secrets"
@@ -60,10 +71,14 @@ resource "aws_iam_policy" "ecs_secrets_read" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = [
-          aws_secretsmanager_secret.db_master_password.arn,
-          aws_secretsmanager_secret.admin_credentials.arn
-        ]
+        Resource = concat(
+          [
+            aws_secretsmanager_secret.db_master_password.arn,
+            aws_secretsmanager_secret.admin_credentials.arn
+          ],
+          # Empty when OAuth is disabled, so the policy stays scoped.
+          data.aws_secretsmanager_secret.oauth_client_secret[*].arn
+        )
       }
     ]
   })
@@ -116,6 +131,7 @@ resource "aws_ecs_task_definition" "open_webui" {
       ],
       "essential" : true,
       "environment" : local.container_environment,
+      "secrets" : local.container_secrets,
       "environmentFiles" : [],
       "mountPoints" : [
         {

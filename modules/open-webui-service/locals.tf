@@ -38,7 +38,6 @@ locals {
     { name = "ENABLE_OAUTH_SIGNUP", value = "True" },
     { name = "OAUTH_MERGE_ACCOUNTS_BY_EMAIL", value = tostring(var.oauth_merge_accounts_by_email) },
     { name = "OAUTH_CLIENT_ID", value = var.cognito_app_client_id },
-    { name = "OAUTH_CLIENT_SECRET", value = var.cognito_app_client_secret },
     { name = "OPENID_PROVIDER_URL", value = local.openid_provider_url },
     { name = "OPENID_REDIRECT_URI", value = local.oauth_redirect_uri },
     { name = "OAUTH_PROVIDER_NAME", value = var.oauth_provider_name },
@@ -52,6 +51,17 @@ locals {
 
   # Combined environment variables
   container_environment = concat(local.base_environment, local.oauth_environment)
+
+  # Secrets are injected by the ECS agent at task start rather than baked into
+  # the task definition, so OAUTH_CLIENT_SECRET is not readable via
+  # ecs:DescribeTaskDefinition and never enters Terraform state. The value is
+  # populated out of band — Terraform only resolves the ARN. See README.
+  container_secrets = local.oauth_enabled ? [
+    {
+      name      = "OAUTH_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret.oauth_client_secret[0].arn
+    }
+  ] : []
 
   ecs_iamr_policies = [
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",

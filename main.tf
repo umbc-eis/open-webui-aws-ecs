@@ -40,7 +40,7 @@ module "open_webui_service" {
   oauth_provider_name                  = var.oauth_provider_name
   cognito_user_pool_id                 = var.cognito_user_pool_id
   cognito_app_client_id                = var.cognito_app_client_id
-  cognito_app_client_secret            = var.cognito_app_client_secret
+  cognito_client_secret_name           = var.cognito_client_secret_name
   oauth_merge_accounts_by_email        = var.oauth_merge_accounts_by_email
   oauth_allowed_domains                = var.oauth_allowed_domains
   disable_local_auth                   = var.disable_local_auth
