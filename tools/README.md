@@ -8,7 +8,7 @@ Tools run inside the Open WebUI backend container. Any pip dependency a tool nee
 
 | File | Method | Output | Library |
 |---|---|---|---|
-| `word_document.py` | `create_word_document(title, sections)` | `.docx` | python-docx (overlay) |
+| `word_document.py` | `create_word_document(title, sections)` | `.docx` | python-docx (upstream, v0.11.1+) |
 | `powerpoint.py` | `create_powerpoint(title, slides)` | `.pptx` | python-pptx (upstream) |
 | `spreadsheet.py` | `create_spreadsheet(sheets, filename)` | `.xlsx` | openpyxl (upstream) |
 | `pdf_document.py` | `create_pdf(title, sections)` | `.pdf` | reportlab (overlay) |

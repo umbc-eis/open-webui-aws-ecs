@@ -30,8 +30,11 @@ resource "aws_lb_target_group" "openwebui_http" {
   }
 
   health_check {
-    enabled             = true
-    healthy_threshold   = 5
+    enabled = true
+    # 3 passes x 30s interval = 90s before a new task receives traffic. Was 5
+    # (150s); lowered to shorten the ALB ramp on deploys, including the
+    # scale-from-zero after a schema migration.
+    healthy_threshold   = 3
     unhealthy_threshold = 2
     interval            = 30
     matcher             = 200

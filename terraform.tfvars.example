@@ -12,6 +12,12 @@ open_webui_task_mem   = 2048
 open_webui_task_count = 3
 open_webui_port       = 8080
 
+# Seconds ECS ignores ALB health checks after a task starts. Open WebUI runs its
+# Alembic migrations before it binds the port, so this must exceed the longest
+# expected migration or ECS kills the migrating task. Raise it before a
+# schema-changing upgrade on a large database.
+open_webui_health_check_grace_period = 600
+
 # First apply: point at the upstream image so the stack (including the ECR
 # repo) comes up. After the initial apply, run scripts/build-and-push.sh
 # and update this URL to the ECR-hosted custom image.

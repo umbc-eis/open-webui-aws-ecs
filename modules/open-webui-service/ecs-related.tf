@@ -197,6 +197,14 @@ resource "aws_ecs_service" "open_webui" {
   enable_ecs_managed_tags            = true
   wait_for_steady_state              = false
 
+  # Open WebUI runs Alembic migrations at import time, before uvicorn binds the
+  # port, so a schema-changing release leaves the container unreachable for the
+  # length of the migration. Without a grace period the target group marks it
+  # unhealthy after unhealthy_threshold * interval and ECS kills the task
+  # mid-migration; the circuit breaker below then rolls the task definition back
+  # against a partially migrated schema.
+  health_check_grace_period_seconds = var.open_webui_health_check_grace_period
+
   deployment_circuit_breaker {
     rollback = true
     enable   = true

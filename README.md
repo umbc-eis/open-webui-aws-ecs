@@ -9,7 +9,7 @@ Deploy [Open WebUI](https://github.com/open-webui/open-webui) on AWS using ECS F
 | **ECS Fargate (ARM64)** | Runs the Open WebUI container; configurable CPU/memory/task-count |
 | **Aurora Serverless v2 (PostgreSQL)** | App data, conversations, users — and the **pgvector** store for RAG embeddings |
 | **EFS** | Shared file storage mounted into every task |
-| **ECR (`openwebui-umbc`)** | Custom image: upstream Open WebUI + `python-docx` and `reportlab` for the document-generation tools |
+| **ECR (`openwebui-umbc`)** | Custom image: upstream Open WebUI + `reportlab` for the document-generation tools |
 | **Application Load Balancer** | Internet-facing HTTPS endpoint (TLS via ACM) |
 | **AWS WAF v2** | Managed rule groups (OWASP, IP reputation, known-bad-inputs, Linux, PHP) — primary public-internet gate |
 | **AWS Cognito (optional)** | OAuth/OIDC SSO; can be set to fully replace local auth |
@@ -58,7 +58,7 @@ The ALB security group allows HTTPS from anywhere on the internet. Access is gat
 │   └── locals.tf, variables.tf, outputs.tf, providers.tf
 ├── docker/                               # Custom image overlay
 │   ├── Dockerfile                        # FROM ${BASE_IMAGE}, layer in extras
-│   └── requirements-extras.txt           # Pinned pip deps (python-docx, reportlab)
+│   └── requirements-extras.txt           # Pinned pip deps (reportlab)
 ├── scripts/
 │   ├── build-and-push.sh                 # Build + push the custom image to ECR
 │   └── reembed-files.py                  # One-shot pgvector backfill helper
@@ -122,7 +122,7 @@ terraform apply
 This takes ~10–15 minutes and creates everything including the `openwebui-umbc` ECR repository. After it completes:
 
 - The Lambda will create the admin user and store credentials in Secrets Manager.
-- The Aurora cluster is up but the app is running the upstream image — the document-generation tools won't work yet because `python-docx` and `reportlab` aren't installed.
+- The Aurora cluster is up but the app is running the upstream image — the PDF tool won't work yet because `reportlab` isn't installed.
 
 ### 5. Build and push the custom image
 
@@ -182,15 +182,21 @@ That plain rolling apply is fine for most releases. It is **not** safe for a rel
 
 #### If a release requires database migrations
 
-Check the release notes before rolling anything out:
+Don't rely on the release notes to tell you. They frequently don't: v0.11.1 added three Alembic revisions and its release body never mentions a migration. Diff the migration directory between the deployed tag and the target tag instead:
 
 ```bash
-gh api repos/open-webui/open-webui/releases/tags/vX.Y.Z -q .body | grep -i "database migration"
+gh api repos/open-webui/open-webui/compare/<deployed-tag>...<target-tag> \
+  -q '.files[] | select(.filename | test("migrations/versions")) | "\(.status)\t\(.filename)"'
 ```
 
-If that returns a match, upstream has changed the schema and a plain `terraform apply` will break the service. This deployment runs several tasks behind an ALB with `deployment_minimum_healthy_percent = 100` and `deployment_maximum_percent = 200`, so an apply is a rolling replacement: new tasks migrate the shared Aurora schema while the old tasks are still serving traffic against it. Upstream states that rolling updates are unsupported for schema-changing releases and will cause application failures.
+Any `added` line means upstream has changed the schema and a plain `terraform apply` will break the service. (`modified` lines on existing revisions are harmless — Alembic tracks revision ids, so an already-applied revision is never re-run.) This deployment runs several tasks behind an ALB with `deployment_minimum_healthy_percent = 100` and `deployment_maximum_percent = 200`, so an apply is a rolling replacement: new tasks migrate the shared Aurora schema while the old tasks are still serving traffic against it. Upstream states that rolling updates are unsupported for schema-changing releases and will cause application failures.
 
 The `deployment_circuit_breaker` block compounds this — if a new task fails its health check after migrating, ECS rolls the task definition back to the previous image pointed at the already-migrated schema, with no corresponding database rollback.
+
+Two properties of upstream's migration runner shape the procedure below:
+
+- **Migrations run before the port opens.** `run_migrations()` is invoked at import time in `backend/open_webui/config.py`, so the container is unreachable for the full duration of the migration. `open_webui_health_check_grace_period` (default 600s) is what stops the target group from marking the task unhealthy and ECS from killing it mid-migration. Raise it if you expect a long migration — index builds on a large `chat` table are the usual culprit.
+- **Migration failures are silent.** That same function swallows exceptions (`except Exception: log.exception(...)`). A failed migration does *not* crash the container: the app boots on a partially migrated schema and passes the `/` health check. You cannot infer success from a healthy task — check the logs.
 
 In that case, take the downtime and cut over in stages. Note your current `open_webui_task_count` first; you restore it in step 5.
 
@@ -201,16 +207,32 @@ aws rds create-db-cluster-snapshot \
   --db-cluster-identifier <cluster-id> \
   --db-cluster-snapshot-identifier openwebui-pre-vX-Y-Z
 
-# 2. Drain all tasks. Downtime starts here.
-#    Set open_webui_task_count = 0 in terraform.tfvars
+# 2. Point at the new image and drain all tasks in one apply. Downtime starts
+#    here. Setting the image now is safe because the desired count is 0, and it
+#    registers the new task definition up front so step 3 launches immediately.
+#    Set open_webui_image_url to the new tag AND open_webui_task_count = 0
 terraform apply
 
-# 3. Bring up exactly one task on the new image so migrations run alone.
-#    Set open_webui_image_url to the new tag AND open_webui_task_count = 1
+# 2b. Skip the ALB drain. Scaling to 0 leaves the old tasks draining against the
+#     target group's deregistration_delay (300s by default, and Open WebUI's
+#     socket.io connections stop it finishing early). That is pure dead time —
+#     the tasks are already out of service. Stop them directly; the desired
+#     count is already 0, so ECS will not replace them.
+aws ecs list-tasks --cluster <prefix>-ecs --service-name <prefix>-svc \
+  --query 'taskArns' --output text | tr '\t' '\n' | while read -r t; do
+    aws ecs stop-task --cluster <prefix>-ecs --task "$t" --reason "upgrade window"
+  done
+
+# 3. Bring up exactly one task so migrations run alone. Every task calls
+#    run_migrations() at import, and concurrent "alembic upgrade head" over the
+#    same revisions is a race — do not scale straight to full capacity.
+#    Set open_webui_task_count = 1
 terraform apply
 
 # 4. Confirm the migrations ran and the task is healthy before going further.
-#    Look for "alembic.runtime.migration ... Running upgrade" and the version banner.
+#    Expect one "Running upgrade <from> -> <to>" line per revision the diff
+#    listed as added, and NO "Error running migrations" line. A healthy task
+#    alone proves nothing — see the note on silent failures above.
 aws logs tail /ecs/<prefix> --follow
 curl -s https://<your-domain>/api/version
 
@@ -218,7 +240,9 @@ curl -s https://<your-domain>/api/version
 terraform apply
 ```
 
-Steps 2–4 are the downtime window — expect several minutes, dominated by Fargate cold start (ENI provisioning plus a large image pull) rather than the migrations themselves. Don't skip step 1: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
+Steps 2–4 are the downtime window. With the drain skipped it is a few minutes; the v0.11.0 → v0.11.1 upgrade measured about two. Fargate cold start (ENI provisioning plus a large image pull) is usually the bigger share, but a release that builds indexes on `chat` or `chat_message` can outweigh it on a large database. Take the snapshot in step 1 *before* draining, so it costs no downtime — a snapshot of a running cluster is crash-consistent and Postgres recovers from it. Don't skip it: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
+
+Restoring capacity in step 5 does not have to wait for the first task to pass its health checks. Once the logs confirm the migrations, apply immediately — the remaining tasks boot in parallel with the ALB ramp and their own `run_migrations()` calls are no-ops.
 
 Avoid `-target` for these applies. The module is `module.open_webui_service`, and a `-target` naming a module that doesn't exist plans zero changes and reports success without doing anything.
 
