@@ -61,6 +61,7 @@ The ALB security group allows HTTPS from anywhere on the internet. Access is gat
 │   └── requirements-extras.txt           # Pinned pip deps (reportlab)
 ├── scripts/
 │   ├── build-and-push.sh                 # Build + push the custom image to ECR
+│   ├── config.sh                         # Share terraform.tfvars via the state bucket
 │   └── reembed-files.py                  # One-shot pgvector backfill helper
 └── tools/                                # Open WebUI tool source files (see tools/README.md)
 ```
@@ -246,6 +247,38 @@ Restoring capacity in step 5 does not have to wait for the first task to pass it
 
 Avoid `-target` for these applies. The module is `module.open_webui_service`, and a `-target` naming a module that doesn't exist plans zero changes and reports success without doing anything.
 
+### Sharing configuration with other operators
+
+`terraform.tfvars` is gitignored — this repo is public, and the file carries the
+VPC and subnet ids, the Cognito pool/client ids and the ALB certificate ARN.
+It contains no secrets (the OAuth client secret lives in Secrets Manager), but
+it is still environment-specific and shouldn't be published.
+
+The shared copy lives in the Terraform state bucket, which is already versioned,
+encrypted and closed to public access, and which every operator can already
+reach. `scripts/config.sh` reads the bucket name from your `backend.hcl`, so it
+is never hardcoded here.
+
+```bash
+./scripts/config.sh pull       # fetch the shared config before you plan
+./scripts/config.sh diff       # see how your local copy differs
+./scripts/config.sh push       # publish your changes for everyone else
+./scripts/config.sh versions    # history, with a restore command
+```
+
+Push after any change others need — most often a new `open_webui_image_url`
+following an upgrade. `pull` and `push` both show a diff and refuse to clobber
+differing content unless you pass `--yes`.
+
+Two things this deliberately does not solve. There is no locking, so coordinate
+before pushing; and nothing forces you to push, so the bucket can lag reality.
+The authoritative record of what is actually deployed is the Terraform state
+plus the ECR tag list, not this file.
+
+Someone setting up a **new** deployment doesn't need any of the above — they
+start from `terraform.tfvars.example` and the [First-time deploy](#first-time-deploy)
+steps.
+
 ### Adding a Python dependency for a tool
 
 1. Pin the version in `docker/requirements-extras.txt` (only add libs that aren't already in upstream's `backend/requirements.txt`).
@@ -303,17 +336,42 @@ terraform destroy
 
 1. Create a Cognito User Pool + App Client (with client secret).
 2. Set the callback URL to `https://your-domain.com/oauth/oidc/callback`.
-3. In `terraform.tfvars`:
-   ```hcl
-   enable_oauth_signup       = true
-   oauth_provider_name       = "Company SSO"
-   cognito_user_pool_id      = "us-east-1_ABC123"
-   cognito_app_client_id     = "..."
-   cognito_app_client_secret = "..."
-   oauth_allowed_domains     = "company.com"   # or "*"
-   disable_local_auth        = true            # optional: kill password login
-   force_oauth_login         = true            # optional: skip the local-login form
+3. Put the client secret in Secrets Manager **before the first apply**. Terraform
+   looks this secret up by name and injects it into the container through the ECS
+   `secrets` mechanism, so the value never lands in the task definition, in
+   Terraform state, or in `terraform.tfvars`. Store it as a raw string, not JSON:
+
+   ```bash
+   aws secretsmanager create-secret \
+     --name openwebui-oauth-client-secret \
+     --description "Open WebUI OAuth client secret" \
+     --secret-string '<client-secret-from-cognito>'
    ```
+
+   Override the name with `cognito_client_secret_name` if you use a different
+   convention. To rotate: `aws secretsmanager put-secret-value` with the new
+   value, then force a new deployment so tasks re-read it — secrets are resolved
+   at task start, not on the fly.
+
+   ```bash
+   aws ecs update-service --cluster openwebui-ecs \
+     --service openwebui-svc --force-new-deployment
+   ```
+
+4. In `terraform.tfvars`:
+   ```hcl
+   enable_oauth_signup   = true
+   oauth_provider_name   = "Company SSO"
+   cognito_user_pool_id  = "us-east-1_ABC123"
+   cognito_app_client_id = "..."
+   oauth_allowed_domains = "company.com"   # or "*"
+   disable_local_auth    = true            # optional: kill password login
+   force_oauth_login     = true            # optional: skip the local-login form
+   ```
+
+   If the secret is missing or unreadable, tasks fail to start with
+   `ResourceInitializationError`. With `force_oauth_login = true` there is no
+   other way in, so verify the secret exists before applying.
 
 ### WAF
 

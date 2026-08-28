@@ -43,7 +43,11 @@ enable_oauth_signup           = false
 oauth_provider_name           = "SSO"
 cognito_user_pool_id          = ""    # e.g. "us-east-1_ABC123DEF"
 cognito_app_client_id         = ""
-cognito_app_client_secret     = ""
+# The client *secret* is not set here. Create it in Secrets Manager before the
+# first apply (see "AWS Cognito SSO" in the README); Terraform looks it up by
+# name and injects it via the ECS secrets mechanism. Leave blank for the default
+# name "openwebui-oauth-client-secret".
+cognito_client_secret_name    = ""
 oauth_merge_accounts_by_email = true
 oauth_allowed_domains         = "*"   # or restrict: "example.com"
 disable_local_auth            = false # disable username/password login

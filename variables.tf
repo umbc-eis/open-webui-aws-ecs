@@ -127,11 +127,10 @@ variable "cognito_app_client_id" {
   sensitive   = true
 }
 
-variable "cognito_app_client_secret" {
-  description = "AWS Cognito App Client Secret"
+variable "cognito_client_secret_name" {
+  description = "Name of the pre-existing Secrets Manager secret holding the raw OAuth client secret. Defaults to \"<prefix>-oauth-client-secret\". Terraform reads the ARN only, never the value."
   type        = string
   default     = ""
-  sensitive   = true
 }
 
 variable "oauth_merge_accounts_by_email" {
