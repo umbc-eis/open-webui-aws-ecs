@@ -207,12 +207,26 @@ aws rds create-db-cluster-snapshot \
   --db-cluster-identifier <cluster-id> \
   --db-cluster-snapshot-identifier openwebui-pre-vX-Y-Z
 
-# 2. Drain all tasks. Downtime starts here.
-#    Set open_webui_task_count = 0 in terraform.tfvars
+# 2. Point at the new image and drain all tasks in one apply. Downtime starts
+#    here. Setting the image now is safe because the desired count is 0, and it
+#    registers the new task definition up front so step 3 launches immediately.
+#    Set open_webui_image_url to the new tag AND open_webui_task_count = 0
 terraform apply
 
-# 3. Bring up exactly one task on the new image so migrations run alone.
-#    Set open_webui_image_url to the new tag AND open_webui_task_count = 1
+# 2b. Skip the ALB drain. Scaling to 0 leaves the old tasks draining against the
+#     target group's deregistration_delay (300s by default, and Open WebUI's
+#     socket.io connections stop it finishing early). That is pure dead time —
+#     the tasks are already out of service. Stop them directly; the desired
+#     count is already 0, so ECS will not replace them.
+aws ecs list-tasks --cluster <prefix>-ecs --service-name <prefix>-svc \
+  --query 'taskArns' --output text | tr '\t' '\n' | while read -r t; do
+    aws ecs stop-task --cluster <prefix>-ecs --task "$t" --reason "upgrade window"
+  done
+
+# 3. Bring up exactly one task so migrations run alone. Every task calls
+#    run_migrations() at import, and concurrent "alembic upgrade head" over the
+#    same revisions is a race — do not scale straight to full capacity.
+#    Set open_webui_task_count = 1
 terraform apply
 
 # 4. Confirm the migrations ran and the task is healthy before going further.
@@ -226,7 +240,9 @@ curl -s https://<your-domain>/api/version
 terraform apply
 ```
 
-Steps 2–4 are the downtime window — expect several minutes. Fargate cold start (ENI provisioning plus a large image pull) is usually the bigger share, but a release that builds indexes on `chat` or `chat_message` can outweigh it on a large database. Don't skip step 1: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
+Steps 2–4 are the downtime window. With the drain skipped it is a few minutes; the v0.11.0 → v0.11.1 upgrade measured about two. Fargate cold start (ENI provisioning plus a large image pull) is usually the bigger share, but a release that builds indexes on `chat` or `chat_message` can outweigh it on a large database. Take the snapshot in step 1 *before* draining, so it costs no downtime — a snapshot of a running cluster is crash-consistent and Postgres recovers from it. Don't skip it: a failed migration is recovered by restoring the snapshot, not by reverting the image tag.
+
+Restoring capacity in step 5 does not have to wait for the first task to pass its health checks. Once the logs confirm the migrations, apply immediately — the remaining tasks boot in parallel with the ALB ramp and their own `run_migrations()` calls are no-ops.
 
 Avoid `-target` for these applies. The module is `module.open_webui_service`, and a `-target` naming a module that doesn't exist plans zero changes and reports success without doing anything.
 
