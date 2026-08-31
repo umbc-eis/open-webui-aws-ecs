@@ -109,10 +109,12 @@ Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email,
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.1"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.3"
 ```
 
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
+
+Avoid v0.11.2 for a first apply: it cannot create a schema, so the stack comes up as a working app over missing tables. Fixed in v0.11.3.
 
 ### 4. Initial apply
 
@@ -205,7 +207,9 @@ The `deployment_circuit_breaker` block compounds this — if a new task fails it
 Two properties of upstream's migration runner shape the procedure below:
 
 - **Migrations run before the port opens.** `run_migrations()` is invoked at import time in `backend/open_webui/config.py`, so the container is unreachable for the full duration of the migration. `open_webui_health_check_grace_period` (default 600s) is what stops the target group from marking the task unhealthy and ECS from killing it mid-migration. Raise it if you expect a long migration — index builds on a large `chat` table are the usual culprit.
-- **Migration failures are silent.** That same function swallows exceptions (`except Exception: log.exception(...)`). A failed migration does *not* crash the container: the app boots on a partially migrated schema and passes the `/` health check. You cannot infer success from a healthy task — check the logs.
+- **A failed migration aborts the container, and the schema does not roll back with it.** Since v0.11.3 `run_migrations()` re-raises after logging (`log.exception(...); raise`), so the import fails, the task dies, and the circuit breaker returns the service to the previous task definition. The database keeps whatever revisions already succeeded — Postgres has transactional DDL, so the revision that failed is rolled back, but the ones before it in the chain are not. Reverting the image tag is therefore not a database rollback, which is why step 1 below is a snapshot.
+
+  Before v0.11.3 the same function swallowed the exception, so a failed migration started anyway on a partially migrated schema and passed the `/` health check. If you are running an older image, a healthy task tells you nothing and the logs are the only evidence.
 
 In that case, take the downtime and cut over in stages. Note your current `open_webui_task_count` first; you restore it in step 5.
 
@@ -240,8 +244,9 @@ terraform apply
 
 # 4. Confirm the migrations ran and the task is healthy before going further.
 #    Expect one "Running upgrade <from> -> <to>" line per revision the diff
-#    listed as added, and NO "Error running migrations" line. A healthy task
-#    alone proves nothing — see the note on silent failures above.
+#    listed as added, and NO "Error running migrations" line. On v0.11.3+ a task
+#    that reaches healthy did migrate successfully, but still check that the
+#    revisions you expected are the ones that ran.
 aws logs tail /ecs/<prefix> --follow
 curl -s https://<your-domain>/api/version
 
