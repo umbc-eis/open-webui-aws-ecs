@@ -112,6 +112,8 @@ For the **first** apply, leave `open_webui_image_url` pointing at the upstream i
 open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.1"
 ```
 
+**Pin the first apply to v0.11.1, not v0.11.2**, even though v0.11.2 is what production runs. v0.11.2 cannot create a schema — see the circular-import note under [If a release requires database migrations](#if-a-release-requires-database-migrations). Bring the stack up on v0.11.1 so the tables get created, then upgrade.
+
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
 
 ### 4. Initial apply
@@ -206,6 +208,18 @@ Two properties of upstream's migration runner shape the procedure below:
 
 - **Migrations run before the port opens.** `run_migrations()` is invoked at import time in `backend/open_webui/config.py`, so the container is unreachable for the full duration of the migration. `open_webui_health_check_grace_period` (default 600s) is what stops the target group from marking the task unhealthy and ECS from killing it mid-migration. Raise it if you expect a long migration — index builds on a large `chat` table are the usual culprit.
 - **Migration failures are silent.** That same function swallows exceptions (`except Exception: log.exception(...)`). A failed migration does *not* crash the container: the app boots on a partially migrated schema and passes the `/` health check. You cannot infer success from a healthy task — check the logs.
+
+That second property is not hypothetical. **v0.11.2 cannot run migrations at all**: changes to `models/calendar.py` and `utils/automations.py` introduced a circular import that `backend/open_webui/migrations/env.py` trips over, so every task logs
+
+```
+Error running migrations: cannot import name 'ENABLE_LOCAL_WEB_FETCH' from
+partially initialized module 'open_webui.config' (circular import)
+```
+
+and then starts normally. Upstream [#29280](https://github.com/open-webui/open-webui/issues/29280). The v0.11.1 → v0.11.2 upgrade is unaffected in practice because that release adds no revisions and an existing database is already at head, but on this image any release that *does* need a migration will silently not get one. Two consequences:
+
+- **Do not bootstrap a fresh deployment on v0.11.2.** An empty database needs `run_migrations()` to create the schema, and it won't; you get a running app over missing tables.
+- Before upgrading past it, confirm the running image can migrate. The log check in step 4 below catches this — it is exactly the case that check exists for.
 
 In that case, take the downtime and cut over in stages. Note your current `open_webui_task_count` first; you restore it in step 5.
 
