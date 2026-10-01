@@ -327,7 +327,7 @@ State is tracked in `scripts/reembed-state.json` (gitignored) so re-runs only re
 
 ```bash
 # Application
-aws logs tail /ecs/openwebui-service --follow
+aws logs tail /ecs/openwebui --follow
 
 # Admin-bootstrap Lambda
 aws logs tail /aws/lambda/openwebui-admin-init --follow
