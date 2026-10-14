@@ -19,3 +19,8 @@ variable "dynamodb_table_name" {
   type        = string
   default     = "terraform-state-lock"
 }
+variable "extra_state_access_role_arns" {
+  description = "IAM role ARNs (wildcards allowed) that may read/write state, in addition to the SSO AdministratorAccess roles and OrganizationAccountAccessRole"
+  type        = list(string)
+  default     = []
+}

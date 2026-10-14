@@ -96,6 +96,7 @@ With S3-native locking, locks live as `.tflock` objects alongside the state obje
 ## What this module creates
 
 - `aws_s3_bucket.terraform_state` — versioning enabled, AES-256 encryption, public access blocked, 90-day non-current version expiration, 7-day multipart-upload abort.
+- `aws_s3_bucket_policy.terraform_state` — denies non-TLS requests, and denies reading or writing objects to every role except the SSO `AdministratorAccess` roles and `OrganizationAccountAccessRole`. State holds generated passwords in plaintext, so read-only roles must not see it. Add other operator roles with `extra_state_access_role_arns`. Bucket-level actions are not restricted, so a wrong policy can always be fixed by an admin.
 - `aws_dynamodb_table.terraform_locks` — **unused**, kept for now to avoid an unexpected destroy during the locking-mode transition. Will be removed.
 
 ## Costs

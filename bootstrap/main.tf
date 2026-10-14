@@ -105,3 +105,70 @@ resource "aws_dynamodb_table" "terraform_locks" {
     Environment = "shared"
   }
 }
+# Restrict who can read or write state. The main state holds Terraform-generated
+# secrets (database password, admin password, WEBUI_SECRET_KEY) in plaintext, so
+# a broad role such as ReadOnlyAccess must not be able to read it.
+#
+# Only object actions are denied. Bucket-level actions (including editing this
+# policy) are left to IAM, so a mistake here cannot lock anyone out of fixing it.
+data "aws_caller_identity" "current" {}
+
+locals {
+  state_access_role_arns = concat(
+    [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*AWSReservedSSO_AdministratorAccess_*",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/OrganizationAccountAccessRole",
+    ],
+    var.extra_state_access_role_arns,
+  )
+}
+
+data "aws_iam_policy_document" "terraform_state" {
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.terraform_state.arn,
+      "${aws_s3_bucket.terraform_state.arn}/*",
+    ]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  statement {
+    sid    = "DenyObjectAccessExceptOperators"
+    effect = "Deny"
+    actions = [
+      "s3:GetObject*",
+      "s3:PutObject*",
+      "s3:DeleteObject*",
+      "s3:RestoreObject",
+    ]
+    resources = ["${aws_s3_bucket.terraform_state.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "ArnNotLike"
+      variable = "aws:PrincipalArn"
+      values   = local.state_access_role_arns
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+  policy = data.aws_iam_policy_document.terraform_state.json
+
+  # The policy is evaluated alongside the public access block; apply it after.
+  depends_on = [aws_s3_bucket_public_access_block.terraform_state]
+}
