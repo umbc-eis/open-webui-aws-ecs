@@ -129,11 +129,13 @@ resource "aws_rds_cluster" "open_webui" {
   preferred_maintenance_window = "sun:06:00-sun:07:00"
 
   # Snapshot configuration
+  copy_tags_to_snapshot     = true
   skip_final_snapshot       = false
   final_snapshot_identifier = "${var.prefix}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
   # Security
-  storage_encrypted = true
+  storage_encrypted   = true
+  deletion_protection = true # set in the console first; keep it so an apply doesn't strip it
 
   # Enable enhanced monitoring
   enabled_cloudwatch_logs_exports = ["postgresql"]
