@@ -475,7 +475,7 @@ aws lambda invoke --function-name openwebui-admin-init response.json && cat resp
 
 ## License
 
-This infrastructure is provided as-is. [Open WebUI](https://github.com/open-webui/open-webui) is MIT-licensed.
+This infrastructure is provided as-is. [Open WebUI](https://github.com/open-webui/open-webui) is distributed under its own [Open WebUI License](https://github.com/open-webui/open-webui/blob/main/LICENSE): BSD-3-Clause terms plus a branding clause. A deployment with more than 50 end users in any rolling 30-day period may not alter or remove the Open WebUI name, logo or other branding without written permission or an enterprise license. This stack leaves the branding untouched (no `WEBUI_NAME` or logo overrides); keep it that way unless that permission is in hand.
 
 ---
 
