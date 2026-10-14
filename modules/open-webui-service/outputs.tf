@@ -7,7 +7,8 @@ output "ecs_cluster" {
 output "ecs_task_def" {
   description = "ECS task definition for Open webui (tf resource: aws_ecs_task_definition)"
   value       = aws_ecs_task_definition.open_webui
-  # container_definitions embeds DATABASE_URL, WEBUI_SECRET_KEY and OAUTH_CLIENT_SECRET
+  # Secrets are injected by ARN, but keep this sensitive in case a plain env var
+  # with a secret value is ever added to container_definitions.
   sensitive = true
 }
 

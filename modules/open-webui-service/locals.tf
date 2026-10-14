@@ -5,7 +5,8 @@ locals {
     data_dir = "/app/backend/data"
   }
 
-  # Construct DATABASE_URL from Aurora cluster details
+  # Construct DATABASE_URL from Aurora cluster details. Stored in the database
+  # secret and injected via container_secrets, not as a plain env var.
   database_url = "postgresql://${aws_rds_cluster.open_webui.master_username}:${urlencode(random_password.db_master_password.result)}@${aws_rds_cluster.open_webui.endpoint}:5432/${aws_rds_cluster.open_webui.database_name}"
 
   # Compute OAuth/Cognito configuration
@@ -19,9 +20,7 @@ locals {
   # Base environment variables
   base_environment = [
     { name = "OPEN_WEBUI_PORT", value = tostring(var.open_webui_port) },
-    { name = "DATABASE_URL", value = local.database_url },
     { name = "DATA_DIR", value = local.open_webui.data_dir },
-    { name = "WEBUI_SECRET_KEY", value = random_password.webui_secret_key.result },
     { name = "ENABLE_SIGNUP", value = tostring(var.enable_signup) },
     { name = "DEFAULT_USER_ROLE", value = var.default_user_role },
     { name = "ADMIN_EMAIL", value = var.admin_email },
@@ -53,15 +52,31 @@ locals {
   container_environment = concat(local.base_environment, local.oauth_environment)
 
   # Secrets are injected by the ECS agent at task start rather than baked into
-  # the task definition, so OAUTH_CLIENT_SECRET is not readable via
-  # ecs:DescribeTaskDefinition and never enters Terraform state. The value is
-  # populated out of band — Terraform only resolves the ARN. See README.
-  container_secrets = local.oauth_enabled ? [
-    {
-      name      = "OAUTH_CLIENT_SECRET"
-      valueFrom = data.aws_secretsmanager_secret.oauth_client_secret[0].arn
-    }
-  ] : []
+  # the task definition, so none of these values is readable via
+  # ecs:DescribeTaskDefinition. OAUTH_CLIENT_SECRET is populated out of band and
+  # never enters Terraform state; the other two are Terraform-generated, so they
+  # are in state (protected by the state bucket policy). See README.
+  #
+  # The "<arn>:<json-key>::" form selects one key from a JSON secret. Referencing
+  # the secret *versions* makes the task definition wait for the values to exist.
+  container_secrets = concat(
+    [
+      {
+        name      = "DATABASE_URL"
+        valueFrom = "${aws_secretsmanager_secret_version.db_master_password.arn}:url::"
+      },
+      {
+        name      = "WEBUI_SECRET_KEY"
+        valueFrom = "${aws_secretsmanager_secret_version.admin_credentials.arn}:webui_secret_key::"
+      },
+    ],
+    local.oauth_enabled ? [
+      {
+        name      = "OAUTH_CLIENT_SECRET"
+        valueFrom = data.aws_secretsmanager_secret.oauth_client_secret[0].arn
+      }
+    ] : []
+  )
 
   ecs_iamr_policies = [
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",

@@ -47,6 +47,10 @@ resource "aws_secretsmanager_secret_version" "db_master_password" {
   secret_string = jsonencode({
     username = "openwebui_admin"
     password = random_password.db_master_password.result
+    # Injected into the task as DATABASE_URL. Stored whole, already URL-encoded,
+    # because Open WebUI's DATABASE_PASSWORD path concatenates the raw password
+    # into the URL and this password contains reserved characters.
+    url = local.database_url
   })
 }
 
