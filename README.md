@@ -109,7 +109,7 @@ Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email,
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.4"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.12.0"
 ```
 
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
@@ -150,7 +150,7 @@ The final line prints the new image URL.
 Update `terraform.tfvars`:
 
 ```hcl
-open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.11.4-extras1"
+open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.12.0-extras1"
 ```
 
 Apply:
