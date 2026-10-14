@@ -63,7 +63,29 @@ The ALB security group allows HTTPS from anywhere on the internet. Access is gat
 │   ├── build-and-push.sh                 # Build + push the custom image to ECR
 │   ├── config.sh                         # Share terraform.tfvars via the state bucket
 │   └── reembed-files.py                  # One-shot pgvector backfill helper
+├── provision_user.py                     # Create a user in LiteLLM + Open WebUI (run with --help)
 └── tools/                                # Open WebUI tool source files (see tools/README.md)
+```
+
+### Local files git ignores
+
+These hold environment-specific values or state, so they are never committed. Create them as shown; don't commit them.
+
+| File | What it is | How to get it | Backed up? |
+|---|---|---|---|
+| `terraform.tfvars` | Deployment settings | `./scripts/config.sh pull` (or copy `terraform.tfvars.example` for a new deployment) | Yes, by `config.sh push` |
+| `backend.hcl` | State bucket name | Copy `backend.hcl.example` and set `bucket` | No; trivial to recreate |
+| `bootstrap/terraform.tfvars` | Bucket name for the bootstrap | Copy `bootstrap/terraform.tfvars.example` | No; trivial to recreate |
+| `bootstrap/terraform.tfstate` | State for the state bucket itself | Created by the bootstrap apply | **Copy it to the bucket** (below) |
+| `scripts/reembed-state.json` | Progress of `reembed-files.py` | Created by the script | Not needed |
+| `.terraform/`, `*.zip`, `.venv/` | Provider cache, Lambda package, Python venv | Recreated by `terraform init` / `apply` | Not needed |
+
+The bootstrap state can't live in the bucket it creates, so it stays on the machine that ran the bootstrap. Keep a copy in the bucket so it isn't lost with a laptop:
+
+```bash
+BUCKET=$(sed -nE 's/^bucket *= *"(.*)"/\1/p' backend.hcl)
+aws s3 cp bootstrap/terraform.tfstate "s3://$BUCKET/bootstrap/terraform.tfstate"   # after any bootstrap apply
+aws s3 cp "s3://$BUCKET/bootstrap/terraform.tfstate" bootstrap/                    # before running bootstrap elsewhere
 ```
 
 ## First-time deploy
@@ -81,7 +103,7 @@ terraform apply
 cd ..
 ```
 
-Note the `s3_bucket_name` output — you'll plug it into `backend.hcl`.
+Note the `s3_bucket_name` output — you'll plug it into `backend.hcl`. Then back up `bootstrap/terraform.tfstate` as described in [Local files git ignores](#local-files-git-ignores).
 
 > **Note on locking:** the main backend uses S3-native locking (`use_lockfile = true`). The bootstrap module currently also provisions a DynamoDB lock table; that table is now unused and will be removed in a follow-up. You don't need to reference it anywhere.
 
