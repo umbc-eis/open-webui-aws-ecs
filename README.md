@@ -109,7 +109,7 @@ Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email,
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.3"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.12.0"
 ```
 
 **Pin the first apply to v0.11.1, not v0.11.2**, even though v0.11.2 is what production runs. v0.11.2 cannot create a schema — see the circular-import note under [If a release requires database migrations](#if-a-release-requires-database-migrations). Bring the stack up on v0.11.1 so the tables get created, then upgrade.
@@ -117,6 +117,8 @@ open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.11.3"
 This lets you bring up the stack before the custom image exists. We'll swap it for the ECR-hosted custom image in step 5.
 
 Avoid v0.11.2 for a first apply: it cannot create a schema, so the stack comes up as a working app over missing tables. Fixed in v0.11.3.
+
+Use the plain tag, not the `-slim` variant upstream began publishing in v0.11.4. Slim drops `openpyxl`, `python-docx` and `python-pptx`, which three of the four tools in [tools/](tools/) import from the base image, along with pandoc and the document loaders that back file uploads. Building the extras layer on slim would mean pinning those three in `docker/requirements-extras.txt` as well.
 
 ### 4. Initial apply
 
@@ -150,7 +152,7 @@ The final line prints the new image URL.
 Update `terraform.tfvars`:
 
 ```hcl
-open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.11.0-extras1"
+open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.12.0-extras1"
 ```
 
 Apply:
@@ -192,6 +194,8 @@ Publish the new tag so other operators don't plan against the old one:
 ```
 
 That plain rolling apply is fine for most releases. It is **not** safe for a release that changes the database schema — see below.
+
+Before building, check that the release did not drop a library the tools import from the base image. Upstream treats packages that are in the image only as a side effect of something else's dependency tree as fair game to remove — v0.11.4 removed several deliberately. The check and the fix are in [tools/README.md](tools/README.md#current-tools).
 
 #### If a release requires database migrations
 
@@ -337,7 +341,7 @@ State is tracked in `scripts/reembed-state.json` (gitignored) so re-runs only re
 
 ```bash
 # Application
-aws logs tail /ecs/openwebui-service --follow
+aws logs tail /ecs/openwebui --follow
 
 # Admin-bootstrap Lambda
 aws logs tail /aws/lambda/openwebui-admin-init --follow

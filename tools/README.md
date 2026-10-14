@@ -16,6 +16,15 @@ Tools run inside the Open WebUI backend container. Any pip dependency a tool nee
 
 "overlay" = added by `docker/requirements-extras.txt`. "upstream" = ships in the base Open WebUI image.
 
+**"upstream" is a loan, not a guarantee.** v0.11.4 removed a batch of packages that were only in the image incidentally (`nltk`, `pymongo`, `fpdf2`, `langchain-community`, the Google Drive client, the Gemini SDK) on the grounds that anything importing them should declare them. The three libraries above are still declared in upstream's `backend/requirements.txt`, so they survived — but that is the thing to re-check on every upgrade, because nothing in this repo pins them:
+
+```sh
+gh api "repos/open-webui/open-webui/contents/backend/requirements.txt?ref=<target-tag>" \
+  -q '.content' | base64 -d | grep -iE '^(openpyxl|python-docx|python-pptx)=='
+```
+
+Three hits means the tools still have their dependencies. Fewer means move the missing ones into `docker/requirements-extras.txt` before rolling the image, or the tool fails at import with the upgrade already live.
+
 ## Installing a tool
 
 Tools are stored in the Open WebUI database. There is no automated import in this stack — admins paste each tool through the UI:
