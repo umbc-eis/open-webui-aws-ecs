@@ -131,7 +131,7 @@ Edit `terraform.tfvars` with your VPC IDs, domain, certificate ARN, admin email,
 For the **first** apply, leave `open_webui_image_url` pointing at the upstream image:
 
 ```hcl
-open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.12.2"
+open_webui_image_url = "ghcr.io/open-webui/open-webui:v0.12.3"
 ```
 
 **Pin the first apply to v0.11.1, not v0.11.2**, even though v0.11.2 is what production runs. v0.11.2 cannot create a schema — see the circular-import note under [If a release requires database migrations](#if-a-release-requires-database-migrations). Bring the stack up on v0.11.1 so the tables get created, then upgrade.
@@ -174,7 +174,7 @@ The final line prints the new image URL.
 Update `terraform.tfvars`:
 
 ```hcl
-open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.12.2-extras1"
+open_webui_image_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com/openwebui-umbc:v0.12.3-extras1"
 ```
 
 Apply:
